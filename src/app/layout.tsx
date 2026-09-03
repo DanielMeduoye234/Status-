@@ -13,6 +13,13 @@ export const metadata: Metadata = {
   title: 'Status | Project Meeting Summaries & Monthly Status Reports',
   description:
     'The executive reporting workspace for Project Managers. Generate crisp Zoom meeting summaries, speaker breakdowns, and monthly status reports.',
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+    ],
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
