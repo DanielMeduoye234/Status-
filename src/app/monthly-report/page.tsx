@@ -35,7 +35,11 @@ function MonthlyReportContent() {
   // Generation Method: 'uploaded_txts' or 'meeting_summaries'
   const [sourceType, setSourceType] = useState<'uploaded_txts' | 'meeting_summaries'>('meeting_summaries');
   const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProject?.id || '');
-  const [monthYear, setMonthYear] = useState<string>('2026-09');
+  const [monthYear, setMonthYear] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [filterByMonthOnly, setFilterByMonthOnly] = useState(true);
   const [reportTitle, setReportTitle] = useState('');
 
   // Batch TXT state
@@ -75,20 +79,25 @@ function MonthlyReportContent() {
     }
   }, [reportId, monthlyReports]);
 
-  // Sync active project
+  // Update selected project if activeProject changes
   useEffect(() => {
     if (activeProject && !selectedProjectId) {
       setSelectedProjectId(activeProject.id);
     }
   }, [activeProject, selectedProjectId]);
 
-  // Filter project summaries for selected project - Memoized to prevent infinite re-render loop
+  // Filter project summaries for selected project and month - Memoized to prevent infinite loop
   const filteredSummaries = useMemo(() => {
     return meetingSummaries.filter((m) => {
-      if (!selectedProjectId) return true;
-      return m.project_id === selectedProjectId;
+      if (!selectedProjectId) return false;
+      const matchProj = m.project_id === selectedProjectId;
+      if (!matchProj) return false;
+      if (filterByMonthOnly && monthYear) {
+        return m.meeting_date ? m.meeting_date.startsWith(monthYear) : false;
+      }
+      return true;
     });
-  }, [meetingSummaries, selectedProjectId]);
+  }, [meetingSummaries, selectedProjectId, filterByMonthOnly, monthYear]);
 
   // Auto-select all filtered summaries when switching project
   const summaryIdsKey = useMemo(() => filteredSummaries.map((s) => s.id).join(','), [filteredSummaries]);
@@ -378,9 +387,20 @@ function MonthlyReportContent() {
           {sourceType === 'meeting_summaries' && (
             <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  2. Select Meetings in Project
-                </h3>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    2. Select Meetings in Project
+                  </h3>
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filterByMonthOnly}
+                      onChange={(e) => setFilterByMonthOnly(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                    />
+                    <span>Show only meetings in {monthYear}</span>
+                  </label>
+                </div>
                 <span className="text-xs text-blue-600 font-bold">
                   {selectedSummaryIds.length} of {filteredSummaries.length} selected
                 </span>
