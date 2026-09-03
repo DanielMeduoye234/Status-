@@ -78,42 +78,11 @@ export function isValidUUID(str?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
-// Initial Default Projects for rapid test drive with valid UUIDs
-const DEFAULT_PROJECTS: Project[] = [
-  {
-    id: '00000000-0000-4000-8000-000000000001',
-    name: 'Hexavia Core Platform 2.0',
-    description: 'Next-gen enterprise status and reporting infrastructure',
-    client_name: 'Hexavia Enterprise',
-    color: '#6366f1',
-    status: 'active',
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: '00000000-0000-4000-8000-000000000002',
-    name: 'Mobile App Revamp',
-    description: 'iOS & Android mobile native experience overhaul',
-    client_name: 'Apex Retail',
-    color: '#10b981',
-    status: 'active',
-    created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-  {
-    id: '00000000-0000-4000-8000-000000000003',
-    name: 'Cloud Infrastructure & Security',
-    description: 'SOC2 Type II compliance and database clustering',
-    client_name: 'Internal Ops',
-    color: '#f59e0b',
-    status: 'active',
-    created_at: new Date(Date.now() - 86400000 * 12).toISOString(),
-  },
-];
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>(DEFAULT_PROJECTS);
-  const [activeProject, setActiveProject] = useState<Project | null>(DEFAULT_PROJECTS[0]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [meetingSummaries, setMeetingSummaries] = useState<MeetingSummaryItem[]>([]);
   const [monthlyReports, setMonthlyReports] = useState<MonthlyReportItem[]>([]);
 
@@ -122,42 +91,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadInitialData = async (currentUser: User | null) => {
     try {
       if (currentUser) {
-        // Fetch real Supabase data
+        // Fetch real Supabase data for authenticated user
         const { data: projData, error: projError } = await supabase
           .from('projects')
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!projError && projData && projData.length > 0) {
+        if (!projError && projData) {
           setProjects(projData);
-          setActiveProject(projData[0]);
+          setActiveProject(projData.length > 0 ? projData[0] : null);
         } else {
-          // If user has no projects yet in Supabase, seed the primary default project
-          try {
-            const { data: seeded, error: seedError } = await supabase
-              .from('projects')
-              .insert({
-                user_id: currentUser.id,
-                name: DEFAULT_PROJECTS[0].name,
-                description: DEFAULT_PROJECTS[0].description,
-                client_name: DEFAULT_PROJECTS[0].client_name,
-                color: DEFAULT_PROJECTS[0].color,
-                status: DEFAULT_PROJECTS[0].status,
-              })
-              .select()
-              .single();
-
-            if (!seedError && seeded) {
-              setProjects([seeded]);
-              setActiveProject(seeded);
-            } else {
-              setProjects(DEFAULT_PROJECTS);
-              setActiveProject(DEFAULT_PROJECTS[0]);
-            }
-          } catch {
-            setProjects(DEFAULT_PROJECTS);
-            setActiveProject(DEFAULT_PROJECTS[0]);
-          }
+          setProjects([]);
+          setActiveProject(null);
         }
 
         const { data: meetingData } = await supabase
@@ -166,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .order('meeting_date', { ascending: false });
 
         if (meetingData) setMeetingSummaries(meetingData);
+        else setMeetingSummaries([]);
 
         const { data: reportData } = await supabase
           .from('monthly_reports')
@@ -173,8 +119,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .order('created_at', { ascending: false });
 
         if (reportData) setMonthlyReports(reportData);
+        else setMonthlyReports([]);
       } else {
-        // Fallback to local storage or defaults for instant usability
+        // Unauthenticated visitor fallback to local storage
         const savedProjects = localStorage.getItem('hexavia_projects');
         const savedMeetings = localStorage.getItem('hexavia_meetings');
         const savedReports = localStorage.getItem('hexavia_reports');
@@ -184,27 +131,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const parsed = JSON.parse(savedProjects);
             if (Array.isArray(parsed) && parsed.length > 0) {
               setProjects(parsed);
-              setActiveProject(parsed[0] || DEFAULT_PROJECTS[0]);
+              setActiveProject(parsed[0] || null);
             } else {
-              setProjects(DEFAULT_PROJECTS);
-              setActiveProject(DEFAULT_PROJECTS[0]);
+              setProjects([]);
+              setActiveProject(null);
             }
-          } catch (e) {
-            setProjects(DEFAULT_PROJECTS);
-            setActiveProject(DEFAULT_PROJECTS[0]);
+          } catch {
+            setProjects([]);
+            setActiveProject(null);
           }
+        } else {
+          setProjects([]);
+          setActiveProject(null);
         }
 
         if (savedMeetings) {
           try {
             setMeetingSummaries(JSON.parse(savedMeetings));
-          } catch (e) {}
+          } catch {
+            setMeetingSummaries([]);
+          }
+        } else {
+          setMeetingSummaries([]);
         }
 
         if (savedReports) {
           try {
             setMonthlyReports(JSON.parse(savedReports));
-          } catch (e) {}
+          } catch {
+            setMonthlyReports([]);
+          }
+        } else {
+          setMonthlyReports([]);
         }
       }
     } catch (err) {

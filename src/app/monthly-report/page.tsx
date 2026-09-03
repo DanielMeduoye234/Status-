@@ -123,10 +123,11 @@ function MonthlyReportContent() {
   };
 
   const handleGenerateReport = async () => {
-    const projectObj = projects.find((p) => p.id === selectedProjectId) || projects[0] || {
-      id: '00000000-0000-4000-8000-000000000001',
-      name: 'Hexavia Core Platform 2.0',
-    };
+    const projectObj = projects.find((p) => p.id === selectedProjectId) || projects[0];
+    if (!projectObj) {
+      alert('Please create at least one project first from the Projects page before generating a monthly status report.');
+      return;
+    }
 
     let contentData = '';
 
@@ -296,11 +297,15 @@ function MonthlyReportContent() {
                   onChange={(e) => setSelectedProjectId(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
                 >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
+                  {projects.length === 0 ? (
+                    <option value="">-- No Projects Created Yet --</option>
+                  ) : (
+                    projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

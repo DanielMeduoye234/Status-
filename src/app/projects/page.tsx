@@ -39,9 +39,27 @@ export default function ProjectsPage() {
           </button>
         </div>
 
-        {/* Projects Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((proj) => {
+        {/* Projects Grid or Empty State */}
+        {projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white py-16 px-4 text-center shadow-sm">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 mb-4 border border-blue-100">
+              <FolderKanban className="h-7 w-7" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">No Projects Created Yet</h3>
+            <p className="text-xs text-slate-500 max-w-sm mt-1 mb-6">
+              Create your first project to start organizing Zoom meeting summaries and compiling monthly executive reports.
+            </p>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-all"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create Your First Project</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((proj) => {
             const projectMeetings = meetingSummaries.filter((m) => m.project_id === proj.id);
             const projectReports = monthlyReports.filter((r) => r.project_id === proj.id);
 
@@ -138,6 +156,7 @@ export default function ProjectsPage() {
             );
           })}
         </div>
+      )}
 
         <ProjectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
       </div>

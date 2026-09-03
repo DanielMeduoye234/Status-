@@ -47,7 +47,7 @@ export default function Navbar() {
                 style={{ backgroundColor: activeProject?.color || '#2563eb' }}
               />
               <span className="max-w-[140px] truncate sm:max-w-[200px]">
-                {activeProject ? activeProject.name : 'Select Project'}
+                {activeProject ? activeProject.name : 'No Project Selected'}
               </span>
               <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
             </button>
@@ -61,28 +61,34 @@ export default function Navbar() {
                   Active Projects
                 </div>
                 <div className="max-h-56 overflow-y-auto space-y-0.5">
-                  {projects.map((proj) => (
-                    <button
-                      key={proj.id}
-                      onClick={() => setActiveProject(proj)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${
-                        activeProject?.id === proj.id
-                          ? 'bg-blue-50 text-blue-700 font-semibold'
-                          : 'text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <div
-                          className="h-2.5 w-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: proj.color || '#2563eb' }}
-                        />
-                        <span className="truncate">{proj.name}</span>
-                      </div>
-                      {activeProject?.id === proj.id && (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-blue-600 flex-shrink-0" />
-                      )}
-                    </button>
-                  ))}
+                  {projects.length === 0 ? (
+                    <div className="py-4 px-2 text-center text-xs text-slate-400">
+                      No projects created yet
+                    </div>
+                  ) : (
+                    projects.map((proj) => (
+                      <button
+                        key={proj.id}
+                        onClick={() => setActiveProject(proj)}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${
+                          activeProject?.id === proj.id
+                            ? 'bg-blue-50 text-blue-700 font-semibold'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <div
+                            className="h-2.5 w-2.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: proj.color || '#2563eb' }}
+                          />
+                          <span className="truncate">{proj.name}</span>
+                        </div>
+                        {activeProject?.id === proj.id && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-blue-600 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))
+                  )}
                 </div>
 
                 <div className="mt-1 border-t border-slate-100 pt-1">
