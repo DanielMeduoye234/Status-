@@ -62,6 +62,7 @@ interface AuthContextType {
   monthlyReports: MonthlyReportItem[];
   setActiveProject: (project: Project | null) => void;
   createProject: (projectData: Partial<Project>) => Promise<Project>;
+  updateProject: (projectId: string, updates: Partial<Project>) => Promise<Project | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
   saveMeetingSummary: (summary: Omit<MeetingSummaryItem, 'id' | 'created_at'>) => Promise<MeetingSummaryItem>;
   deleteMeetingSummary: (summaryId: string) => Promise<boolean>;
@@ -246,6 +247,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return newProj;
   };
 
+  const updateProject = async (projectId: string, updates: Partial<Project>): Promise<Project | null> => {
+    let updatedProj: Project | null = null;
+    if (user && isValidUUID(projectId)) {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .update({
+            ...(updates.name !== undefined && { name: updates.name }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.client_name !== undefined && { client_name: updates.client_name }),
+            ...(updates.color !== undefined && { color: updates.color }),
+            ...(updates.status !== undefined && { status: updates.status }),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', projectId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          updatedProj = data;
+        }
+      } catch (e) {
+        console.warn('Supabase update project error:', e);
+      }
+    }
+
+    const updatedList = projects.map((p) => {
+      if (p.id === projectId) {
+        const merged = { ...p, ...updates };
+        if (!updatedProj) updatedProj = merged;
+        return merged;
+      }
+      return p;
+    });
+
+    setProjects(updatedList);
+    if (activeProject?.id === projectId && updatedProj) {
+      setActiveProject(updatedProj);
+    }
+    localStorage.setItem('hexavia_projects', JSON.stringify(updatedList));
+    return updatedProj;
+  };
+
   const deleteProject = async (projectId: string): Promise<boolean> => {
     if (user && isValidUUID(projectId)) {
       try {
@@ -267,11 +311,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const saveMeetingSummary = async (
     summary: Omit<MeetingSummaryItem, 'id' | 'created_at'>
   ): Promise<MeetingSummaryItem> => {
-    const validProjectId = isValidUUID(summary.project_id) ? summary.project_id : null;
+    const targetProjectId = summary.project_id || null;
 
     const newItem: MeetingSummaryItem = {
       ...summary,
-      project_id: validProjectId,
+      project_id: targetProjectId,
       id: crypto.randomUUID(),
       user_id: user?.id,
       created_at: new Date().toISOString(),
@@ -279,11 +323,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       try {
+        const supabaseProjectId = isValidUUID(targetProjectId) ? targetProjectId : null;
         const { data, error } = await supabase
           .from('meeting_summaries')
           .insert({
             user_id: user.id,
-            project_id: newItem.project_id,
+            project_id: supabaseProjectId,
             title: newItem.title,
             meeting_date: newItem.meeting_date,
             file_name: newItem.file_name,
@@ -301,6 +346,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!error && data) {
           newItem.id = data.id;
+          if (data.project_id) {
+            newItem.project_id = data.project_id;
+          }
         }
       } catch (e) {
         console.warn('Supabase meeting insert fallback to local', e);
@@ -422,6 +470,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         monthlyReports,
         setActiveProject,
         createProject,
+        updateProject,
         deleteProject,
         saveMeetingSummary,
         deleteMeetingSummary,

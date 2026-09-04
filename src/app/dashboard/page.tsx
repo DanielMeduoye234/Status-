@@ -69,10 +69,16 @@ export default function DashboardPage() {
 
           {/* Quick Metrics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100">
-            <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
-              <p className="text-xs font-medium text-slate-500">Active Projects</p>
+            <Link
+              href="/projects"
+              className="rounded-xl bg-slate-50 p-4 border border-slate-100 hover:border-blue-300 hover:bg-blue-50/20 transition-all block group"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-500 group-hover:text-blue-600">Active Projects</p>
+                <ArrowRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />
+              </div>
               <p className="text-2xl font-bold text-slate-900 mt-1">{projects.length}</p>
-            </div>
+            </Link>
             <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
               <p className="text-xs font-medium text-slate-500">Meeting Summaries</p>
               <p className="text-2xl font-bold text-blue-600 mt-1">{meetingSummaries.length}</p>
@@ -221,41 +227,54 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                {meetingSummaries.slice(0, 4).map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between"
-                  >
-                    <div className="truncate pr-3">
-                      <p className="text-xs font-bold text-slate-900 truncate">{item.title}</p>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3 text-slate-400" />
-                          {item.meeting_date}
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3 w-3 text-slate-400" />
-                          {item.participants?.length || 2} attendees
-                        </span>
-                        {item.action_items && item.action_items.length > 0 && (
-                          <>
-                            <span>•</span>
-                            <span className="text-blue-600 font-semibold">
-                              {item.action_items.length} actions
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <Link
-                      href={`/meeting-summary?id=${item.id}`}
-                      className="flex-shrink-0 rounded-lg bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                {meetingSummaries.slice(0, 4).map((item) => {
+                  const proj = projects.find((p) => p.id === item.project_id);
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between"
                     >
-                      View
-                    </Link>
-                  </div>
-                ))}
+                      <div className="truncate pr-3">
+                        <div className="flex items-center gap-2 truncate">
+                          <p className="text-xs font-bold text-slate-900 truncate">{item.title}</p>
+                          {proj && (
+                            <Link
+                              href={`/projects/${proj.id}`}
+                              className="rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 hover:bg-blue-100 transition-colors"
+                            >
+                              {proj.name}
+                            </Link>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-slate-400" />
+                            {item.meeting_date}
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3 text-slate-400" />
+                            {item.participants?.length || 2} attendees
+                          </span>
+                          {item.action_items && item.action_items.length > 0 && (
+                            <>
+                              <span>•</span>
+                              <span className="text-blue-600 font-semibold">
+                                {item.action_items.length} actions
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Link
+                        href={`/meeting-summary?id=${item.id}`}
+                        className="flex-shrink-0 rounded-lg bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                      >
+                        View
+                      </Link>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -289,29 +308,42 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                {monthlyReports.slice(0, 4).map((report) => (
-                  <div
-                    key={report.id}
-                    className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between"
-                  >
-                    <div className="truncate pr-3">
-                      <p className="text-xs font-bold text-slate-900 truncate">{report.title}</p>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                        <span className="rounded bg-emerald-50 px-1.5 py-0.2 text-emerald-700 border border-emerald-200 uppercase text-[10px] font-bold">
-                          {report.health_status.replace('_', ' ')}
-                        </span>
-                        <span>•</span>
-                        <span>Period: {report.month_year}</span>
-                      </div>
-                    </div>
-                    <Link
-                      href={`/monthly-report?id=${report.id}`}
-                      className="flex-shrink-0 rounded-lg bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                {monthlyReports.slice(0, 4).map((report) => {
+                  const proj = projects.find((p) => p.id === report.project_id);
+                  return (
+                    <div
+                      key={report.id}
+                      className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between"
                     >
-                      Open
-                    </Link>
-                  </div>
-                ))}
+                      <div className="truncate pr-3">
+                        <div className="flex items-center gap-2 truncate">
+                          <p className="text-xs font-bold text-slate-900 truncate">{report.title}</p>
+                          {proj && (
+                            <Link
+                              href={`/projects/${proj.id}`}
+                              className="rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 hover:bg-blue-100 transition-colors"
+                            >
+                              {proj.name}
+                            </Link>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
+                          <span className="rounded bg-emerald-50 px-1.5 py-0.2 text-emerald-700 border border-emerald-200 uppercase text-[10px] font-bold">
+                            {report.health_status.replace('_', ' ')}
+                          </span>
+                          <span>•</span>
+                          <span>Period: {report.month_year}</span>
+                        </div>
+                      </div>
+                      <Link
+                        href={`/monthly-report?id=${report.id}`}
+                        className="flex-shrink-0 rounded-lg bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                      >
+                        Open
+                      </Link>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

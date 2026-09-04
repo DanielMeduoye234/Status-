@@ -21,7 +21,12 @@ import {
   ArrowLeft,
   RefreshCw,
   Trash2,
-  ShieldAlert
+  ShieldAlert,
+  FolderKanban,
+  ArrowRight,
+  ExternalLink,
+  Search,
+  X
 } from 'lucide-react';
 import SampleTranscriptModal from '@/components/SampleTranscriptModal';
 import Link from 'next/link';
@@ -30,15 +35,18 @@ function MeetingSummaryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const summaryId = searchParams.get('id');
+  const urlProjectId = searchParams.get('projectId');
   const { projects, activeProject, saveMeetingSummary, deleteMeetingSummary, meetingSummaries } = useAuth();
 
   const [rawTranscript, setRawTranscript] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProject?.id || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || activeProject?.id || '');
   const [fileName, setFileName] = useState('');
   
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'who_said_what' | 'action_items' | 'decisions' | 'markdown'>('overview');
   const [copied, setCopied] = useState(false);
@@ -69,12 +77,14 @@ function MeetingSummaryContent() {
     }
   }, [summaryId, meetingSummaries]);
 
-  // Update selected project if activeProject changes
+  // Update selected project if urlProjectId or activeProject changes
   useEffect(() => {
-    if (activeProject && !selectedProjectId) {
+    if (urlProjectId) {
+      setSelectedProjectId(urlProjectId);
+    } else if (activeProject && !selectedProjectId) {
       setSelectedProjectId(activeProject.id);
     }
-  }, [activeProject, selectedProjectId]);
+  }, [urlProjectId, activeProject, selectedProjectId]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -202,13 +212,25 @@ function MeetingSummaryContent() {
           </div>
         </div>
 
-        <button
-          onClick={() => setIsSampleModalOpen(true)}
-          className="flex items-center gap-2 rounded-lg bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all self-start sm:self-auto"
-        >
-          <FileText className="h-4 w-4 text-blue-600" />
-          <span>Load Sample Zoom Transcript</span>
-        </button>
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          {meetingSummaries.length > 0 && (
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+            >
+              <FolderKanban className="h-4 w-4 text-blue-600" />
+              <span>Meeting Records ({meetingSummaries.length})</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsSampleModalOpen(true)}
+            className="flex items-center gap-2 rounded-lg bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all"
+          >
+            <FileText className="h-4 w-4 text-blue-600" />
+            <span>Load Sample Zoom Transcript</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -362,7 +384,7 @@ function MeetingSummaryContent() {
                     <h2 className="text-base font-bold text-slate-900 tracking-tight">
                       {summaryResult.title || meetingTitle}
                     </h2>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3.5 w-3.5 text-slate-400" />
                         {meetingDate}
@@ -372,6 +394,23 @@ function MeetingSummaryContent() {
                         <Users className="h-3.5 w-3.5 text-slate-400" />
                         {summaryResult.participants?.join(', ') || 'Team Attendees'}
                       </span>
+                      {selectedProjectId && (() => {
+                        const proj = projects.find((p) => p.id === selectedProjectId);
+                        if (!proj) return null;
+                        return (
+                          <>
+                            <span>•</span>
+                            <Link
+                              href={`/projects/${proj.id}`}
+                              className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                            >
+                              <FolderKanban className="h-3 w-3" />
+                              <span>Project: {proj.name}</span>
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </Link>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -424,9 +463,20 @@ function MeetingSummaryContent() {
                 )}
 
                 {savedSuccess && (
-                  <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span>Saved to your Project summaries in Supabase!</span>
+                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                      <span>Meeting summary recorded successfully!</span>
+                    </div>
+                    {selectedProjectId && (
+                      <Link
+                        href={`/projects/${selectedProjectId}`}
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-colors self-start sm:self-auto"
+                      >
+                        <span>Open in Project Records</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    )}
                   </div>
                 )}
 
@@ -758,6 +808,94 @@ function MeetingSummaryContent() {
           setFileName(`${title.toLowerCase().replace(/\s+/g, '_')}.txt`);
         }}
       />
+
+      {/* Meeting Records Archive Modal */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <FolderKanban className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Saved Meeting Records Archive</h3>
+                  <p className="text-[11px] text-slate-500">Access and load any previously recorded meeting</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsHistoryOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                placeholder="Filter by title, date, or project name..."
+                className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+
+            <div className="overflow-y-auto space-y-2 flex-1 pr-1">
+              {meetingSummaries
+                .filter((m) => {
+                  if (!historySearch.trim()) return true;
+                  const q = historySearch.toLowerCase();
+                  const matchTitle = m.title.toLowerCase().includes(q);
+                  const matchDate = (m.meeting_date || '').toLowerCase().includes(q);
+                  const proj = projects.find((p) => p.id === m.project_id);
+                  const matchProj = proj?.name.toLowerCase().includes(q);
+                  return matchTitle || matchDate || matchProj;
+                })
+                .map((m) => {
+                  const proj = projects.find((p) => p.id === m.project_id);
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => {
+                        router.push(`/meeting-summary?id=${m.id}`);
+                        setIsHistoryOpen(false);
+                      }}
+                      className="p-3.5 rounded-xl border border-slate-100 hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer transition-all flex items-center justify-between group"
+                    >
+                      <div className="space-y-1 truncate pr-3">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
+                            {m.title}
+                          </p>
+                          {proj && (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0">
+                              {proj.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-slate-400" />
+                            {m.meeting_date}
+                          </span>
+                          <span>•</span>
+                          <span>{m.action_items?.length || 0} action items</span>
+                          <span>•</span>
+                          <span>{m.key_decisions?.length || 0} decisions</span>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        Open →
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

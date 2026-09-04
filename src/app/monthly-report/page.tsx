@@ -22,7 +22,10 @@ import {
   TrendingUp,
   ShieldAlert,
   Target,
-  Trash2
+  Trash2,
+  FolderKanban,
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,11 +33,12 @@ function MonthlyReportContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reportId = searchParams.get('id');
+  const urlProjectId = searchParams.get('projectId');
   const { projects, activeProject, meetingSummaries, saveMonthlyReport, deleteMonthlyReport, monthlyReports } = useAuth();
 
   // Generation Method: 'uploaded_txts' or 'meeting_summaries'
   const [sourceType, setSourceType] = useState<'uploaded_txts' | 'meeting_summaries'>('meeting_summaries');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProject?.id || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || activeProject?.id || '');
   const [monthYear, setMonthYear] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -79,12 +83,14 @@ function MonthlyReportContent() {
     }
   }, [reportId, monthlyReports]);
 
-  // Update selected project if activeProject changes
+  // Update selected project if urlProjectId or activeProject changes
   useEffect(() => {
-    if (activeProject && !selectedProjectId) {
+    if (urlProjectId) {
+      setSelectedProjectId(urlProjectId);
+    } else if (activeProject && !selectedProjectId) {
       setSelectedProjectId(activeProject.id);
     }
-  }, [activeProject, selectedProjectId]);
+  }, [urlProjectId, activeProject, selectedProjectId]);
 
   // Filter project summaries for selected project and month - Memoized to prevent infinite loop
   const filteredSummaries = useMemo(() => {
@@ -520,6 +526,22 @@ function MonthlyReportContent() {
                     <h2 className="text-base font-bold text-slate-900 tracking-tight mt-1">
                       {reportResult.title}
                     </h2>
+                    {selectedProjectId && (() => {
+                      const proj = projects.find((p) => p.id === selectedProjectId);
+                      if (!proj) return null;
+                      return (
+                        <div className="mt-1">
+                          <Link
+                            href={`/projects/${proj.id}`}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                          >
+                            <FolderKanban className="h-3 w-3" />
+                            <span>Project Records: {proj.name}</span>
+                            <ExternalLink className="h-2.5 w-2.5" />
+                          </Link>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -571,9 +593,20 @@ function MonthlyReportContent() {
                 )}
 
                 {savedSuccess && (
-                  <div className="mb-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span>Saved to Monthly Reports in Supabase!</span>
+                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                      <span>Monthly Status Report recorded successfully!</span>
+                    </div>
+                    {selectedProjectId && (
+                      <Link
+                        href={`/projects/${selectedProjectId}`}
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-colors self-start sm:self-auto"
+                      >
+                        <span>Open in Project Records</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    )}
                   </div>
                 )}
 
