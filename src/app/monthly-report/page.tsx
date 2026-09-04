@@ -158,7 +158,9 @@ function MonthlyReportContent() {
             (m, idx) =>
               `=== MEETING ${idx + 1}: ${m.title} (Date: ${m.meeting_date}) ===\nExecutive Summary: ${
                 m.executive_summary || m.summary_markdown
-              }\nDecisions: ${JSON.stringify(m.key_decisions || [])}\nBlockers: ${JSON.stringify(
+              }\nSpeaker Contributions & Attribution: ${JSON.stringify(
+                m.who_said_what || []
+              )}\nDecisions: ${JSON.stringify(m.key_decisions || [])}\nBlockers: ${JSON.stringify(
                 m.key_blockers || []
               )}\nActions: ${JSON.stringify(m.action_items || [])}`
           )
