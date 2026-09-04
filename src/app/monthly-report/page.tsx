@@ -25,10 +25,12 @@ import {
   Trash2,
   FolderKanban,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  Eye
 } from 'lucide-react';
 import Link from 'next/link';
 import { exportMonthlyReportPDF } from '@/lib/export/pdfExport';
+import { ExecutiveReportModal } from '@/components/export/ExecutiveReportModal';
 
 function MonthlyReportContent() {
   const router = useRouter();
@@ -55,6 +57,7 @@ function MonthlyReportContent() {
 
   const [loading, setLoading] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportResult, setReportResult] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -600,6 +603,15 @@ function MonthlyReportContent() {
                     </button>
 
                     <button
+                      onClick={() => setIsReportModalOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                      title="Preview Executive Template & Print"
+                    >
+                      <Eye className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Executive Preview</span>
+                    </button>
+
+                    <button
                       onClick={handleExportPDF}
                       disabled={exportingPDF}
                       className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50"
@@ -911,6 +923,29 @@ function MonthlyReportContent() {
           )}
         </div>
       </div>
+
+      {/* Executive Report Preview Modal */}
+      {reportResult && (
+        <ExecutiveReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          type="monthly"
+          monthlyData={{
+            title: reportTitle || reportResult.title || 'Monthly Status Report',
+            month_year: monthYear,
+            projectName: projects.find((p) => p.id === selectedProjectId)?.name,
+            health_status: reportResult.health_status,
+            executive_summary: reportResult.executive_summary,
+            milestones_achieved: reportResult.milestones_achieved,
+            in_progress_items: reportResult.in_progress_items,
+            risks_blockers: reportResult.risks_blockers,
+            decisions_log: reportResult.decisions_log,
+            contributor_highlights: reportResult.contributor_highlights,
+            next_month_goals: reportResult.next_month_goals,
+            generated_report_markdown: reportResult.generated_report_markdown,
+          }}
+        />
+      )}
     </div>
   );
 }

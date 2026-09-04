@@ -26,11 +26,13 @@ import {
   ArrowRight,
   ExternalLink,
   Search,
-  X
+  X,
+  Eye
 } from 'lucide-react';
 import SampleTranscriptModal from '@/components/SampleTranscriptModal';
 import Link from 'next/link';
 import { exportMeetingSummaryPDF } from '@/lib/export/pdfExport';
+import { ExecutiveReportModal } from '@/components/export/ExecutiveReportModal';
 
 function MeetingSummaryContent() {
   const router = useRouter();
@@ -50,6 +52,7 @@ function MeetingSummaryContent() {
   const [historySearch, setHistorySearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'who_said_what' | 'action_items' | 'decisions' | 'markdown'>('overview');
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -466,6 +469,15 @@ function MeetingSummaryContent() {
                           <span>Copy</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      onClick={() => setIsReportModalOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                      title="Preview Executive Template & Print"
+                    >
+                      <Eye className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Executive Preview</span>
                     </button>
 
                     <button
@@ -929,6 +941,28 @@ function MeetingSummaryContent() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Executive Report Preview Modal */}
+      {summaryResult && (
+        <ExecutiveReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          type="meeting"
+          meetingData={{
+            title: meetingTitle || summaryResult.title || 'Meeting Summary',
+            meeting_date: meetingDate,
+            projectName: projects.find((p) => p.id === selectedProjectId)?.name,
+            file_name: fileName,
+            executive_summary: summaryResult.executive_summary,
+            participants: summaryResult.participants,
+            action_items: summaryResult.action_items,
+            key_decisions: summaryResult.key_decisions,
+            key_blockers: summaryResult.key_blockers,
+            who_said_what: summaryResult.who_said_what,
+            summary_markdown: summaryResult.summary_markdown,
+          }}
+        />
       )}
     </div>
   );
