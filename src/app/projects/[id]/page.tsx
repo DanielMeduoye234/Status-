@@ -22,8 +22,10 @@ import {
   CheckSquare, 
   ChevronRight,
   ListTodo,
-  Scale
+  Scale,
+  Download
 } from 'lucide-react';
+import { exportMeetingSummaryPDF, exportMonthlyReportPDF } from '@/lib/export/pdfExport';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -124,6 +126,49 @@ export default function ProjectDetailPage() {
   const handleDeleteMeeting = async (meetingId: string, title: string) => {
     if (window.confirm(`Delete meeting summary "${title}" from project records?`)) {
       await deleteMeetingSummary(meetingId);
+    }
+  };
+
+  const handleDownloadMeetingPDF = async (m: any) => {
+    try {
+      await exportMeetingSummaryPDF({
+        title: m.title,
+        meeting_date: m.meeting_date,
+        projectName: project?.name,
+        file_name: m.file_name,
+        executive_summary: m.executive_summary,
+        participants: m.participants,
+        action_items: m.action_items,
+        key_decisions: m.key_decisions,
+        key_blockers: m.key_blockers,
+        who_said_what: m.who_said_what,
+        summary_markdown: m.summary_markdown,
+      });
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate PDF. Please try again.');
+    }
+  };
+
+  const handleDownloadReportPDF = async (r: any) => {
+    try {
+      await exportMonthlyReportPDF({
+        title: r.title,
+        month_year: r.month_year,
+        projectName: project?.name,
+        health_status: r.health_status,
+        executive_summary: r.executive_summary,
+        milestones_achieved: r.milestones_achieved,
+        in_progress_items: r.in_progress_items,
+        risks_blockers: r.risks_blockers,
+        decisions_log: r.decisions_log,
+        contributor_highlights: r.contributor_highlights,
+        next_month_goals: r.next_month_goals,
+        generated_report_markdown: r.generated_report_markdown,
+      });
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate PDF. Please try again.');
     }
   };
 
@@ -452,6 +497,14 @@ export default function ProjectDetailPage() {
 
                       {/* Right Action buttons */}
                       <div className="flex items-center gap-2 flex-shrink-0 self-start">
+                        <button
+                          onClick={() => handleDownloadMeetingPDF(meeting)}
+                          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors shadow-xs"
+                          title="Download PDF"
+                        >
+                          <Download className="h-3.5 w-3.5 text-slate-500" />
+                          <span>PDF</span>
+                        </button>
                         <Link
                           href={`/meeting-summary?id=${meeting.id}`}
                           className="flex items-center gap-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white px-3.5 py-1.5 text-xs font-semibold transition-all shadow-xs"
@@ -616,13 +669,23 @@ export default function ProjectDetailPage() {
                       <div className="text-[11px] text-slate-400">
                         {report.source_type === 'meeting_summaries' ? 'Aggregated from meetings' : 'Synthesized from TXTs'}
                       </div>
-                      <Link
-                        href={`/monthly-report?id=${report.id}`}
-                        className="flex items-center gap-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white px-3 py-1.5 text-xs font-semibold transition-colors"
-                      >
-                        <span>View Report</span>
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleDownloadReportPDF(report)}
+                          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors shadow-xs"
+                          title="Download PDF"
+                        >
+                          <Download className="h-3.5 w-3.5 text-slate-500" />
+                          <span>PDF</span>
+                        </button>
+                        <Link
+                          href={`/monthly-report?id=${report.id}`}
+                          className="flex items-center gap-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-600 hover:text-white px-3 py-1.5 text-xs font-semibold transition-colors"
+                        >
+                          <span>View Report</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ))}

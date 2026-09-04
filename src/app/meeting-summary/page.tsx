@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import SampleTranscriptModal from '@/components/SampleTranscriptModal';
 import Link from 'next/link';
+import { exportMeetingSummaryPDF } from '@/lib/export/pdfExport';
 
 function MeetingSummaryContent() {
   const router = useRouter();
@@ -48,6 +49,7 @@ function MeetingSummaryContent() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'who_said_what' | 'action_items' | 'decisions' | 'markdown'>('overview');
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -181,8 +183,30 @@ function MeetingSummaryContent() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleExportPDF = async () => {
+    if (!summaryResult) return;
+    setExportingPDF(true);
+    try {
+      const proj = projects.find((p) => p.id === selectedProjectId);
+      await exportMeetingSummaryPDF({
+        title: meetingTitle || summaryResult.title || 'Meeting Summary',
+        meeting_date: meetingDate,
+        projectName: proj?.name,
+        file_name: fileName,
+        executive_summary: summaryResult.executive_summary,
+        participants: summaryResult.participants,
+        action_items: summaryResult.action_items,
+        key_decisions: summaryResult.key_decisions,
+        key_blockers: summaryResult.key_blockers,
+        who_said_what: summaryResult.who_said_what,
+        summary_markdown: summaryResult.summary_markdown,
+      });
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setExportingPDF(false);
+    }
   };
 
   const handleDeleteSummary = async () => {
@@ -445,12 +469,22 @@ function MeetingSummaryContent() {
                     </button>
 
                     <button
-                      onClick={handlePrint}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-                      title="Print or Export PDF"
+                      onClick={handleExportPDF}
+                      disabled={exportingPDF}
+                      className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50"
+                      title="Download PDF Report"
                     >
-                      <Download className="h-3.5 w-3.5 text-slate-500" />
-                      <span>PDF / Print</span>
+                      {exportingPDF ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Generating PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Download PDF</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

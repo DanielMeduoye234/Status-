@@ -28,6 +28,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import Link from 'next/link';
+import { exportMonthlyReportPDF } from '@/lib/export/pdfExport';
 
 function MonthlyReportContent() {
   const router = useRouter();
@@ -53,6 +54,7 @@ function MonthlyReportContent() {
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
   const [reportResult, setReportResult] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -234,8 +236,31 @@ function MonthlyReportContent() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleExportPDF = async () => {
+    if (!reportResult) return;
+    setExportingPDF(true);
+    try {
+      const proj = projects.find((p) => p.id === selectedProjectId);
+      await exportMonthlyReportPDF({
+        title: reportTitle || reportResult.title || 'Monthly Status Report',
+        month_year: monthYear,
+        projectName: proj?.name,
+        health_status: reportResult.health_status,
+        executive_summary: reportResult.executive_summary,
+        milestones_achieved: reportResult.milestones_achieved,
+        in_progress_items: reportResult.in_progress_items,
+        risks_blockers: reportResult.risks_blockers,
+        decisions_log: reportResult.decisions_log,
+        contributor_highlights: reportResult.contributor_highlights,
+        next_month_goals: reportResult.next_month_goals,
+        generated_report_markdown: reportResult.generated_report_markdown,
+      });
+    } catch (err) {
+      console.error('Error exporting PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setExportingPDF(false);
+    }
   };
 
   const toggleSummarySelection = (id: string) => {
@@ -575,12 +600,22 @@ function MonthlyReportContent() {
                     </button>
 
                     <button
-                      onClick={handlePrint}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-                      title="Print or Export PDF"
+                      onClick={handleExportPDF}
+                      disabled={exportingPDF}
+                      className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50"
+                      title="Download PDF Report"
                     >
-                      <Download className="h-3.5 w-3.5 text-slate-500" />
-                      <span>PDF / Print</span>
+                      {exportingPDF ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Generating PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Download PDF</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
