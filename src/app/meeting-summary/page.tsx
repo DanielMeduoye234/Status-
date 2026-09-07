@@ -27,12 +27,26 @@ import {
   ExternalLink,
   Search,
   X,
-  Eye
+  Eye,
+  Bot,
+  Video,
+  Zap,
+  Radio,
+  Plus
 } from 'lucide-react';
 import SampleTranscriptModal from '@/components/SampleTranscriptModal';
 import Link from 'next/link';
 import { exportMeetingSummaryPDF } from '@/lib/export/pdfExport';
 import { ExecutiveReportModal } from '@/components/export/ExecutiveReportModal';
+import InviteBotModal from '@/components/bot/InviteBotModal';
+import LiveBotMonitor from '@/components/bot/LiveBotMonitor';
+import BotSessionsDrawer from '@/components/bot/BotSessionsDrawer';
+import { 
+  BotSession, 
+  MeetingPlatform, 
+  detectMeetingPlatform, 
+  DEMO_MEETING_LINKS 
+} from '@/lib/bot/mockBotService';
 
 function MeetingSummaryContent() {
   const router = useRouter();
@@ -47,6 +61,14 @@ function MeetingSummaryContent() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || activeProject?.id || '');
   const [fileName, setFileName] = useState('');
   
+  // Input mode tab: upload file, paste text, or live AI bot
+  const [inputMode, setInputMode] = useState<'bot' | 'upload' | 'paste'>('bot');
+  const [isBotModalOpen, setIsBotModalOpen] = useState(false);
+  const [isBotDrawerOpen, setIsBotDrawerOpen] = useState(false);
+  const [botSessions, setBotSessions] = useState<BotSession[]>([]);
+  const [activeBotSession, setActiveBotSession] = useState<BotSession | null>(null);
+  const [quickBotUrl, setQuickBotUrl] = useState('');
+
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
@@ -126,19 +148,23 @@ function MeetingSummaryContent() {
     reader.readAsText(file);
   };
 
-  const handleProcessTranscript = async () => {
-    if (!rawTranscript.trim()) return;
+  const executeProcessing = async (textOverride?: string, titleOverride?: string, projOverride?: string) => {
+    const textToProcess = textOverride || rawTranscript;
+    if (!textToProcess.trim()) return;
+
+    const titleToUse = titleOverride || meetingTitle;
+    const projToUse = projOverride !== undefined ? projOverride : selectedProjectId;
 
     setLoading(true);
     setSavedSuccess(false);
 
     try {
-      const projectObj = projects.find((p) => p.id === selectedProjectId);
+      const projectObj = projects.find((p) => p.id === projToUse);
       const res = await fetch('/api/ai/meeting-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rawTranscript,
+          rawTranscript: textToProcess,
           projectName: projectObj?.name,
         }),
       });
@@ -149,17 +175,17 @@ function MeetingSummaryContent() {
 
       const data = await res.json();
       setSummaryResult(data);
-      if (!meetingTitle) {
-        setMeetingTitle(data.title || 'Meeting Summary');
+      if (!meetingTitle && (titleToUse || data.title)) {
+        setMeetingTitle(titleToUse || data.title);
       }
 
       // Auto-save to Supabase & local state
       await saveMeetingSummary({
-        title: meetingTitle || data.title || 'Meeting Summary',
+        title: titleToUse || data.title || 'Meeting Summary',
         meeting_date: meetingDate,
-        project_id: selectedProjectId || null,
-        file_name: fileName || 'transcript.txt',
-        raw_transcript: rawTranscript,
+        project_id: projToUse || null,
+        file_name: fileName || 'bot-transcript.txt',
+        raw_transcript: textToProcess,
         summary_markdown: data.summary_markdown,
         executive_summary: data.executive_summary,
         who_said_what: data.who_said_what,
@@ -176,6 +202,92 @@ function MeetingSummaryContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleProcessTranscript = () => executeProcessing();
+
+  const handleDispatchBot = (config: {
+    meetingUrl: string;
+    platform: MeetingPlatform;
+    title: string;
+    projectId?: string;
+    botName: string;
+    joinMode: 'now' | 'scheduled';
+    scheduledTime?: string;
+    postGreeting: boolean;
+    language: string;
+  }) => {
+    const proj = projects.find((p) => p.id === config.projectId);
+    const newSession: BotSession = {
+      id: `bot-${Date.now()}`,
+      meetingUrl: config.meetingUrl,
+      platform: config.platform,
+      title: config.title || `${detectMeetingPlatform(config.meetingUrl).label} Sync Session`,
+      projectId: config.projectId,
+      projectName: proj?.name,
+      botName: config.botName || 'Hexavia Notetaker',
+      status: 'connecting',
+      durationSeconds: 0,
+      participants: [],
+      transcriptChunks: [],
+      fullTranscript: '',
+      postGreeting: config.postGreeting,
+      scheduledTime: config.scheduledTime,
+      startedAt: new Date().toISOString(),
+    };
+
+    setActiveBotSession(newSession);
+    setBotSessions((prev) => [newSession, ...prev]);
+    setInputMode('bot');
+    if (!meetingTitle) {
+      setMeetingTitle(newSession.title);
+    }
+    if (config.projectId && !selectedProjectId) {
+      setSelectedProjectId(config.projectId);
+    }
+
+    // Auto-progress to waiting room after brief connection simulation
+    setTimeout(() => {
+      setActiveBotSession((prev) => {
+        if (!prev || prev.id !== newSession.id) return prev;
+        return { ...prev, status: 'waiting_room' };
+      });
+    }, 2000);
+  };
+
+  const handleQuickDispatch = (urlToUse?: string) => {
+    const url = urlToUse || quickBotUrl;
+    if (!url.trim()) {
+      setIsBotModalOpen(true);
+      return;
+    }
+    const detected = detectMeetingPlatform(url);
+    handleDispatchBot({
+      meetingUrl: url.trim(),
+      platform: detected.platform,
+      title: meetingTitle || `${detected.label} Session`,
+      projectId: selectedProjectId || undefined,
+      botName: 'Hexavia Notetaker',
+      joinMode: 'now',
+      postGreeting: true,
+      language: 'en-US',
+    });
+    setQuickBotUrl('');
+  };
+
+  const handleUpdateBotSession = (updated: BotSession) => {
+    setActiveBotSession(updated);
+    setBotSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  };
+
+  const handleImportBotTranscript = (transcriptText: string, title: string, projId?: string) => {
+    setRawTranscript(transcriptText);
+    if (title) setMeetingTitle(title);
+    if (projId) setSelectedProjectId(projId);
+    setFileName(`ai-bot-${new Date().toISOString().split('T')[0]}.txt`);
+
+    // Execute processing immediately
+    executeProcessing(transcriptText, title, projId);
   };
 
   const handleCopyMarkdown = () => {
@@ -239,7 +351,17 @@ function MeetingSummaryContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+          {botSessions.length > 0 && (
+            <button
+              onClick={() => setIsBotDrawerOpen(true)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+            >
+              <Bot className="h-4 w-4 text-blue-600" />
+              <span>Bot Sessions ({botSessions.length})</span>
+            </button>
+          )}
+
           {meetingSummaries.length > 0 && (
             <button
               onClick={() => setIsHistoryOpen(true)}
@@ -255,15 +377,179 @@ function MeetingSummaryContent() {
             className="flex items-center gap-2 rounded-lg bg-blue-50 px-3.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all"
           >
             <FileText className="h-4 w-4 text-blue-600" />
-            <span>Load Sample Zoom Transcript</span>
+            <span>Load Sample Transcript</span>
+          </button>
+
+          <button
+            onClick={() => setIsBotModalOpen(true)}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-all shadow-md shadow-blue-500/20 ring-2 ring-blue-500/20 cursor-pointer"
+          >
+            <Bot className="h-4 w-4" />
+            <span>Invite AI Bot</span>
+            {activeBotSession && activeBotSession.status !== 'completed' && (
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+            )}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* LEFT COLUMN: INPUT / UPLOADER (5 Cols) */}
+        {/* LEFT COLUMN: INPUT / BOT LAUNCHER (5 Cols) */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Metadata Selector Card */}
+          
+          {/* Input Source Selector */}
+          <div className="flex rounded-xl bg-slate-100/90 p-1 border border-slate-200 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setInputMode('bot')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition-all relative cursor-pointer ${
+                inputMode === 'bot'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:text-blue-700 hover:bg-white/50'
+              }`}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              <span>Invite AI Bot</span>
+              <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-extrabold tracking-wide uppercase ${
+                inputMode === 'bot' ? 'bg-blue-800 text-blue-100' : 'bg-blue-100 text-blue-700'
+              }`}>
+                Live
+              </span>
+              {activeBotSession && activeBotSession.status !== 'completed' && (
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping absolute -top-0.5 -right-0.5 ring-2 ring-white" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setInputMode('upload')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                inputMode === 'upload'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Upload TXT</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setInputMode('paste')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                inputMode === 'paste'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span>Paste Text</span>
+            </button>
+          </div>
+
+          {/* Mode 1: AI Bot Mode */}
+          {inputMode === 'bot' && (
+            <div className="space-y-4">
+              {activeBotSession ? (
+                <LiveBotMonitor
+                  session={activeBotSession}
+                  onUpdateSession={handleUpdateBotSession}
+                  onImportTranscript={handleImportBotTranscript}
+                  onDismiss={() => setActiveBotSession(null)}
+                />
+              ) : (
+                /* Launchpad Card */
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-500/20 ring-4 ring-blue-50">
+                        <Bot className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">AI Notetaker Launchpad</h3>
+                        <p className="text-[11px] text-slate-500">Autonomous meeting transcriber</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsBotModalOpen(true)}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer"
+                    >
+                      Advanced Options
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Paste a meeting link below. The AI bot enters your call, captures incoming audio, differentiates speakers, and feeds the transcript directly into Hexavia.
+                  </p>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Meeting Link (Google Meet, Zoom, Teams, Webex)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={quickBotUrl}
+                        onChange={(e) => setQuickBotUrl(e.target.value)}
+                        placeholder="https://meet.google.com/abc-defg-hij"
+                        className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuickDispatch()}
+                        className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition-all cursor-pointer"
+                      >
+                        <Zap className="h-3.5 w-3.5" />
+                        <span>Dispatch</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quick sample link pills */}
+                  <div className="pt-1">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block mb-1.5">
+                      Or Try With a Demo Meeting:
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {DEMO_MEETING_LINKS.map((demo) => (
+                        <button
+                          key={demo.platform}
+                          type="button"
+                          onClick={() => {
+                            setQuickBotUrl(demo.url);
+                            handleQuickDispatch(demo.url);
+                          }}
+                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:text-blue-700 transition-colors cursor-pointer"
+                        >
+                          <Video className="h-3 w-3 text-slate-400" />
+                          <span>{demo.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {botSessions.length > 0 && (
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-xs text-slate-500">
+                        {botSessions.length} recorded bot session{botSessions.length > 1 ? 's' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsBotDrawerOpen(true)}
+                        className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                      >
+                        View Bot Sessions &rarr;
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Metadata Parameters Card */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Meeting Parameters
@@ -315,70 +601,75 @@ function MeetingSummaryContent() {
             </div>
           </div>
 
-          {/* TXT Uploader & Dropzone */}
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            className="rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/70 p-6 text-center transition-colors relative"
-          >
-            <input
-              type="file"
-              accept=".txt,.vtt,.log"
-              onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
-            <div className="flex flex-col items-center justify-center pointer-events-none">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600 mb-2 border border-blue-100">
-                <Upload className="h-5 w-5" />
-              </div>
-              <p className="text-xs font-bold text-slate-800">
-                {fileName ? fileName : 'Upload Zoom Transcript (.TXT)'}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Drag and drop your Zoom audio/video transcript file here
-              </p>
-            </div>
-          </div>
-
-          {/* Raw Textarea */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3 shadow-sm">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Or Paste Transcript Text
-              </label>
-              {rawTranscript && (
-                <span className="text-[11px] text-slate-400 font-medium">
-                  {rawTranscript.split(/\s+/).filter(Boolean).length} words
-                </span>
-              )}
-            </div>
-
-            <textarea
-              rows={8}
-              value={rawTranscript}
-              onChange={(e) => setRawTranscript(e.target.value)}
-              placeholder="00:00:15 Sarah: Hey team, we finished the sprint deliverables...&#10;00:00:30 Alex: Great, what about the database migrations?"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] text-slate-800 placeholder-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600 resize-none"
-            />
-
-            <button
-              onClick={handleProcessTranscript}
-              disabled={loading || !rawTranscript.trim()}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all"
+          {/* Mode 2: Upload File */}
+          {inputMode === 'upload' && (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+              className="rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-500 bg-slate-50/70 p-6 text-center transition-colors relative"
             >
-              {loading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Analyzing Transcript & Speakers...</span>
-                </>
-              ) : (
-                <>
-                  <FileText className="h-4 w-4" />
-                  <span>Generate Meeting Summary</span>
-                </>
-              )}
-            </button>
-          </div>
+              <input
+                type="file"
+                accept=".txt,.vtt,.log"
+                onChange={handleFileUpload}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <div className="flex flex-col items-center justify-center pointer-events-none">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600 mb-2 border border-blue-100">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <p className="text-xs font-bold text-slate-800">
+                  {fileName ? fileName : 'Upload Zoom Transcript (.TXT)'}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Drag and drop your Zoom audio/video transcript file here
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Raw Textarea (Visible in paste mode or when transcript is loaded) */}
+          {(inputMode === 'paste' || rawTranscript) && (
+            <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  {inputMode === 'paste' ? 'Paste Transcript Text' : 'Active Transcript Preview'}
+                </label>
+                {rawTranscript && (
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {rawTranscript.split(/\s+/).filter(Boolean).length} words
+                  </span>
+                )}
+              </div>
+
+              <textarea
+                rows={inputMode === 'paste' ? 8 : 5}
+                value={rawTranscript}
+                onChange={(e) => setRawTranscript(e.target.value)}
+                placeholder="00:00:15 Sarah: Hey team, we finished the sprint deliverables...&#10;00:00:30 Alex: Great, what about the database migrations?"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] text-slate-800 placeholder-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600 resize-none"
+              />
+
+              <button
+                onClick={handleProcessTranscript}
+                disabled={loading || !rawTranscript.trim()}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Analyzing Transcript & Speakers...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    <span>Generate Meeting Summary</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
         </div>
 
         {/* RIGHT COLUMN: INTELLIGENCE OUTPUT (7 Cols) */}
@@ -964,6 +1255,32 @@ function MeetingSummaryContent() {
           }}
         />
       )}
+
+      {/* Invite AI Bot Modal */}
+      <InviteBotModal
+        isOpen={isBotModalOpen}
+        onClose={() => setIsBotModalOpen(false)}
+        onDispatchBot={handleDispatchBot}
+        initialProjectId={selectedProjectId}
+      />
+
+      {/* Bot Sessions History Drawer */}
+      <BotSessionsDrawer
+        isOpen={isBotDrawerOpen}
+        onClose={() => setIsBotDrawerOpen(false)}
+        sessions={botSessions}
+        onSelectSession={(session) => {
+          setActiveBotSession(session);
+          setInputMode('bot');
+        }}
+        onNewBotInvite={() => setIsBotModalOpen(true)}
+        onDeleteSession={(sessionId) => {
+          setBotSessions((prev) => prev.filter((s) => s.id !== sessionId));
+          if (activeBotSession?.id === sessionId) {
+            setActiveBotSession(null);
+          }
+        }}
+      />
     </div>
   );
 }

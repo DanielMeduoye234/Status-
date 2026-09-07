@@ -11,8 +11,12 @@ import {
   Copy, 
   Check, 
   ShieldCheck, 
-  Info,
-  AlertCircle
+  Info, 
+  AlertCircle,
+  Bot,
+  Video,
+  Sparkles,
+  Sliders
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -242,6 +246,69 @@ create index if not exists idx_monthly_reports_project_id on public.monthly_repo
             <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
             <p>
               The platform is equipped with an intelligent engine. You can upload Zoom TXTs, test speaker breakdowns, and generate monthly reports immediately.
+            </p>
+          </div>
+        </div>
+
+        {/* AI Meeting Notetaker Bot Settings Card */}
+        <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white shadow-md shadow-blue-500/20 ring-4 ring-blue-50">
+                <Bot className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">AI Meeting Notetaker Bot Preferences</h3>
+                <p className="text-xs text-slate-500">
+                  Configure default bot persona, meeting announcements, and platform parameters
+                </p>
+              </div>
+            </div>
+
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200 flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+              <span>Interactive Engine Ready</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                Default Bot Call Name
+              </label>
+              <input
+                type="text"
+                defaultValue="Hexavia Notetaker"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
+              />
+              <p className="text-[11px] text-slate-500">
+                Display name displayed in Google Meet, Zoom, and MS Teams participant roster.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                In-Meeting Greeting Announcement
+              </label>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-600 font-medium">Post greeting in call chat upon joining</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  Enabled
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Posts a polite notice informing participants that the bot is recording audio for PM notes.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Sliders className="h-4 w-4 text-blue-600" />
+              <h4 className="text-xs font-bold text-blue-900">Transcription & Engine Mode</h4>
+            </div>
+            <p className="text-xs text-blue-800 leading-relaxed">
+              Hexavia is running in <strong>Interactive Simulation & UI Mode</strong>. You can test meeting dispatch, host admission, live soundwaves, real-time transcription streaming, and 1-click executive summary generation. Future backend integrations will support direct <code>RECALL_AI_API_KEY</code> or <code>MEETING_BAAS_API_KEY</code> environment variables.
             </p>
           </div>
         </div>
