@@ -63,6 +63,29 @@ export default function InviteBotModal({
   const [postGreeting, setPostGreeting] = useState(true);
   const [language, setLanguage] = useState('en-US');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recallConfig, setRecallConfig] = useState<{
+    configured: boolean;
+    region?: string;
+    checked: boolean;
+  }>({ configured: false, checked: false });
+  const [forceSimulation, setForceSimulation] = useState(false);
+
+  // Check if Recall.ai is configured on the backend
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/bot/test-connection')
+      .then((res) => res.json())
+      .then((data) => {
+        setRecallConfig({
+          configured: Boolean(data.configured),
+          region: data.region,
+          checked: true,
+        });
+      })
+      .catch(() => {
+        setRecallConfig({ configured: false, checked: true });
+      });
+  }, [isOpen]);
 
   // Sync selected project with active project
   useEffect(() => {
@@ -82,14 +105,14 @@ export default function InviteBotModal({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!meetingUrl.trim()) return;
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      onDispatchBot({
+    try {
+      await onDispatchBot({
         meetingUrl: meetingUrl.trim(),
         platform: platformInfo.platform,
         title: meetingTitle.trim() || `${platformInfo.label} Sync Session`,
@@ -100,10 +123,12 @@ export default function InviteBotModal({
         postGreeting,
         language,
       });
-
-      setIsSubmitting(false);
       onClose();
-    }, 400);
+    } catch (err) {
+      console.error('Dispatch failed:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -118,15 +143,26 @@ export default function InviteBotModal({
                 <Bot className="h-5 w-5" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-base font-bold text-slate-900">Invite AI Meeting Notetaker</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                    <Sparkles className="h-2.5 w-2.5" />
-                    Autonomous Transcriber
-                  </span>
+                  {recallConfig.checked && (
+                    recallConfig.configured ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Recall.ai Live ({recallConfig.region || 'us-west-2'})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+                        <Sparkles className="h-2.5 w-2.5 text-amber-600" />
+                        Simulation Mode
+                      </span>
+                    )
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Send an AI bot into your meeting to record, diarize speakers, and transcribe automatically
+                  {recallConfig.configured
+                    ? 'Dispatches a live Recall.ai bot into your call to record, diarize speakers, and transcribe'
+                    : 'Interactive simulation mode. Set RECALL_AI_API_KEY in .env.local to dispatch real bots'}
                 </p>
               </div>
             </div>
@@ -391,8 +427,18 @@ export default function InviteBotModal({
               disabled={isSubmitting || !meetingUrl.trim()}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 disabled:opacity-50 transition-all cursor-pointer"
             >
-              <Bot className="h-4 w-4" />
-              <span>{joinMode === 'now' ? 'Dispatch AI Notetaker' : 'Schedule AI Notetaker'}</span>
+              {isSubmitting ? (
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Bot className="h-4 w-4" />
+              )}
+              <span>
+                {isSubmitting
+                  ? 'Dispatching Notetaker...'
+                  : joinMode === 'now'
+                  ? (recallConfig.configured ? 'Dispatch Recall.ai Bot' : 'Dispatch AI Notetaker')
+                  : 'Schedule AI Notetaker'}
+              </span>
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>

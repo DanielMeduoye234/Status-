@@ -34,6 +34,10 @@ export interface BotSession {
   fullTranscript: string;
   postGreeting: boolean;
   scheduledTime?: string;
+  isRealBot?: boolean;
+  recallBotId?: string;
+  recallStatus?: string;
+  errorDetail?: string;
 }
 
 /**

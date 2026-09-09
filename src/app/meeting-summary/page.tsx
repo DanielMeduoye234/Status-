@@ -206,7 +206,7 @@ function MeetingSummaryContent() {
 
   const handleProcessTranscript = () => executeProcessing();
 
-  const handleDispatchBot = (config: {
+  const handleDispatchBot = async (config: {
     meetingUrl: string;
     platform: MeetingPlatform;
     title: string;
@@ -218,11 +218,58 @@ function MeetingSummaryContent() {
     language: string;
   }) => {
     const proj = projects.find((p) => p.id === config.projectId);
-    const newSession: BotSession = {
+    const sessionTitle = config.title || `${detectMeetingPlatform(config.meetingUrl).label} Sync Session`;
+
+    try {
+      const res = await fetch('/api/bot/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meetingUrl: config.meetingUrl,
+          title: sessionTitle,
+          projectId: config.projectId,
+          projectName: proj?.name,
+          botName: config.botName,
+          joinMode: config.joinMode,
+          scheduledTime: config.scheduledTime,
+          postGreeting: config.postGreeting,
+          language: config.language,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.session) {
+        setActiveBotSession(data.session);
+        setBotSessions((prev) => [data.session, ...prev.filter((s) => s.id !== data.session.id)]);
+        setInputMode('bot');
+        if (!meetingTitle) {
+          setMeetingTitle(data.session.title);
+        }
+        if (config.projectId && !selectedProjectId) {
+          setSelectedProjectId(config.projectId);
+        }
+
+        // If it's a simulated session, auto-progress to waiting room
+        if (!data.isRealBot) {
+          setTimeout(() => {
+            setActiveBotSession((prev) => {
+              if (!prev || prev.id !== data.session.id) return prev;
+              return { ...prev, status: 'waiting_room' };
+            });
+          }, 2000);
+        }
+        return;
+      }
+    } catch (dispatchErr) {
+      console.error('Error dispatching bot via API:', dispatchErr);
+    }
+
+    // Fallback if API request threw network error
+    const fallbackSession: BotSession = {
       id: `bot-${Date.now()}`,
       meetingUrl: config.meetingUrl,
       platform: config.platform,
-      title: config.title || `${detectMeetingPlatform(config.meetingUrl).label} Sync Session`,
+      title: sessionTitle,
       projectId: config.projectId,
       projectName: proj?.name,
       botName: config.botName || 'Hexavia Notetaker',
@@ -234,22 +281,18 @@ function MeetingSummaryContent() {
       postGreeting: config.postGreeting,
       scheduledTime: config.scheduledTime,
       startedAt: new Date().toISOString(),
+      isRealBot: false,
     };
 
-    setActiveBotSession(newSession);
-    setBotSessions((prev) => [newSession, ...prev]);
+    setActiveBotSession(fallbackSession);
+    setBotSessions((prev) => [fallbackSession, ...prev]);
     setInputMode('bot');
-    if (!meetingTitle) {
-      setMeetingTitle(newSession.title);
-    }
-    if (config.projectId && !selectedProjectId) {
-      setSelectedProjectId(config.projectId);
-    }
+    if (!meetingTitle) setMeetingTitle(fallbackSession.title);
+    if (config.projectId && !selectedProjectId) setSelectedProjectId(config.projectId);
 
-    // Auto-progress to waiting room after brief connection simulation
     setTimeout(() => {
       setActiveBotSession((prev) => {
-        if (!prev || prev.id !== newSession.id) return prev;
+        if (!prev || prev.id !== fallbackSession.id) return prev;
         return { ...prev, status: 'waiting_room' };
       });
     }, 2000);

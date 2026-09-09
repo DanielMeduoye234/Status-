@@ -20,6 +20,8 @@ import {
   RotateCcw,
   Volume2,
   CheckCircle2,
+  RefreshCw,
+  Zap,
   X
 } from 'lucide-react';
 import { 
@@ -62,7 +64,9 @@ export default function LiveBotMonitor({
     }
   }, [session.transcriptChunks]);
 
-  // Simulation timer and state progression
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Simulation timer and duration counter
   useEffect(() => {
     if (session.status === 'completed' || session.status === 'error') {
       return;
@@ -78,8 +82,81 @@ export default function LiveBotMonitor({
     return () => clearInterval(timer);
   }, [session, onUpdateSession]);
 
+  // Live polling for real Recall.ai bot sessions
+  useEffect(() => {
+    if (!session.isRealBot || !session.recallBotId) {
+      return;
+    }
+    if (session.status === 'completed' || session.status === 'error') {
+      return;
+    }
+
+    let isMounted = true;
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/bot/${session.recallBotId}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted) return;
+
+        const updatedChunks = (data.transcriptChunks && data.transcriptChunks.length > 0)
+          ? data.transcriptChunks
+          : session.transcriptChunks;
+
+        const updatedTranscript = data.fullTranscript || session.fullTranscript;
+
+        onUpdateSession({
+          ...session,
+          status: data.status,
+          recallStatus: data.recallStatusCode,
+          participants: data.participants?.length > 0 ? data.participants : session.participants,
+          activeSpeaker: data.activeSpeaker || session.activeSpeaker,
+          transcriptChunks: updatedChunks,
+          fullTranscript: updatedTranscript,
+        });
+      } catch (err) {
+        console.error('Error polling Recall.ai bot status:', err);
+      }
+    }, 3500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [session, onUpdateSession]);
+
+  // Manual refresh for Recall.ai status and transcript
+  const handleManualRefresh = async () => {
+    if (!session.isRealBot || !session.recallBotId) return;
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`/api/bot/${session.recallBotId}/status`);
+      if (res.ok) {
+        const data = await res.json();
+        onUpdateSession({
+          ...session,
+          status: data.status,
+          recallStatus: data.recallStatusCode,
+          participants: data.participants?.length > 0 ? data.participants : session.participants,
+          activeSpeaker: data.activeSpeaker || session.activeSpeaker,
+          transcriptChunks: data.transcriptChunks?.length > 0 ? data.transcriptChunks : session.transcriptChunks,
+          fullTranscript: data.fullTranscript || session.fullTranscript,
+        });
+      }
+    } catch (err) {
+      console.error('Manual refresh failed:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Handle host admission from waiting room
   const handleHostAdmit = () => {
+    if (session.isRealBot && session.recallBotId) {
+      handleManualRefresh();
+      return;
+    }
+
     const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
     const firstSpeaker = script[0]?.speaker;
 
@@ -131,8 +208,16 @@ export default function LiveBotMonitor({
     });
   };
 
-  // Stop / End meeting
-  const handleCompleteMeeting = () => {
+  // Stop / End meeting and leave call
+  const handleCompleteMeeting = async () => {
+    if (session.isRealBot && session.recallBotId) {
+      try {
+        await fetch(`/api/bot/${session.recallBotId}/leave`, { method: 'POST' });
+      } catch (leaveErr) {
+        console.error('Error ejecting Recall.ai bot:', leaveErr);
+      }
+    }
+
     const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
     const currentChunks = session.transcriptChunks.length > 0 ? session.transcriptChunks : script;
     const fullText = currentChunks.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
@@ -161,14 +246,14 @@ export default function LiveBotMonitor({
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 border border-amber-200 animate-pulse">
             <span className="h-2 w-2 rounded-full bg-amber-500" />
-            Connecting to {platformInfo.label}...
+            {session.isRealBot ? 'Recall.ai: Connecting Bot...' : `Connecting to ${platformInfo.label}...`}
           </span>
         );
       case 'waiting_room':
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700 border border-orange-200">
             <span className="h-2 w-2 rounded-full bg-orange-500 animate-ping" />
-            In Waiting Room (Knocking)
+            {session.isRealBot ? 'In Waiting Room (Admit in call)' : 'In Waiting Room (Knocking)'}
           </span>
         );
       case 'in_meeting':
@@ -176,7 +261,7 @@ export default function LiveBotMonitor({
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
             <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            LIVE &bull; Transcribing Audio
+            {session.isRealBot ? 'LIVE • Recall.ai Transcribing' : 'LIVE • Transcribing Audio'}
           </span>
         );
       case 'completed':
@@ -184,6 +269,13 @@ export default function LiveBotMonitor({
           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
             <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
             Call Finished &bull; Transcript Ready
+          </span>
+        );
+      case 'error':
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700 border border-red-200">
+            <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+            Bot Connection Error
           </span>
         );
       default:
@@ -210,6 +302,12 @@ export default function LiveBotMonitor({
                 <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${platformInfo.badgeBg} ${platformInfo.badgeText}`}>
                   {platformInfo.label}
                 </span>
+                {session.isRealBot && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700">
+                    <Zap className="h-2.5 w-2.5 text-indigo-600" />
+                    Recall.ai Live Bot
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
                 <span>Bot: <strong className="text-slate-700">{session.botName}</strong></span>
@@ -279,21 +377,34 @@ export default function LiveBotMonitor({
             </div>
             <div>
               <h4 className="text-xs font-bold text-orange-900">
-                &ldquo;{session.botName}&rdquo; is currently in the meeting waiting room
+                &ldquo;{session.botName}&rdquo; is in the {platformInfo.label} waiting room
               </h4>
               <p className="text-[11px] text-orange-700 mt-0.5">
-                The meeting host needs to click &ldquo;Admit&rdquo; in {platformInfo.label} to let the bot in and start transcribing.
+                {session.isRealBot
+                  ? `Switch to your ${platformInfo.label} window and click "Admit" to let Recall.ai join and start transcribing.`
+                  : `The meeting host needs to click "Admit" in ${platformInfo.label} to let the bot in and start transcribing.`}
               </p>
             </div>
           </div>
 
-          <button
-            onClick={handleHostAdmit}
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-orange-700 transition-colors shrink-0 cursor-pointer"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>Simulate Host Admit</span>
-          </button>
+          {session.isRealBot ? (
+            <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-orange-700 disabled:opacity-50 transition-colors shrink-0 cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>{isRefreshing ? 'Checking Status...' : 'Check Waiting Room Status'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleHostAdmit}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-orange-700 transition-colors shrink-0 cursor-pointer"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>Simulate Host Admit</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -337,14 +448,32 @@ export default function LiveBotMonitor({
             Live Dialogue Stream
           </label>
           <div className="flex items-center gap-2">
-            {session.status === 'in_meeting' && (
-              <button
-                type="button"
-                onClick={handleAddNextSpeech}
-                className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 transition-colors"
-              >
-                + Stream Next Speech Turn
-              </button>
+            {session.isRealBot ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-200 transition-colors flex items-center gap-1 shadow-2xs"
+                >
+                  <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+                  <span>{isRefreshing ? 'Syncing...' : 'Sync Transcript'}</span>
+                </button>
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Recall.ai Live Stream
+                </span>
+              </div>
+            ) : (
+              session.status === 'in_meeting' && (
+                <button
+                  type="button"
+                  onClick={handleAddNextSpeech}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 transition-colors"
+                >
+                  + Stream Next Speech Turn
+                </button>
+              )
             )}
           </div>
         </div>
@@ -398,18 +527,20 @@ export default function LiveBotMonitor({
                 className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-bold text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
-                <span>End & Leave Call</span>
+                <span>{session.isRealBot ? 'Disconnect Recall Bot' : 'End & Leave Call'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleFastForward}
-                title="Fast forward simulated meeting to completion"
-                className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                <FastForward className="h-3.5 w-3.5 text-blue-600" />
-                <span>Fast Forward</span>
-              </button>
+              {!session.isRealBot && (
+                <button
+                  type="button"
+                  onClick={handleFastForward}
+                  title="Fast forward simulated meeting to completion"
+                  className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  <FastForward className="h-3.5 w-3.5 text-blue-600" />
+                  <span>Fast Forward</span>
+                </button>
+              )}
             </>
           )}
 
@@ -430,7 +561,7 @@ export default function LiveBotMonitor({
           <button
             type="button"
             onClick={() => {
-              if (!session.fullTranscript) {
+              if (!session.fullTranscript && !session.isRealBot) {
                 handleFastForward();
               }
               onImportTranscript(
