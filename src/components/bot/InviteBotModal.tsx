@@ -179,6 +179,22 @@ export default function InviteBotModal({
         {/* Modal Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto">
           
+          {/* Missing API Key Warning Banner */}
+          {recallConfig.checked && !recallConfig.configured && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <span className="font-bold text-amber-950">RECALL_AI_API_KEY is not configured on this server:</span>
+                <p className="mt-0.5 text-amber-800">
+                  Submitting will start an <strong>offline demo simulation</strong>. A real bot will <em>not</em> join your live call.
+                </p>
+                <p className="mt-1 text-[11px] text-amber-700">
+                  To invite a real bot to your Google Meet or Zoom meeting, add <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-semibold">RECALL_AI_API_KEY</code> to your Vercel Environment Variables.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Section 1: Meeting Link */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -436,7 +452,7 @@ export default function InviteBotModal({
                 {isSubmitting
                   ? 'Dispatching Notetaker...'
                   : joinMode === 'now'
-                  ? (recallConfig.configured ? 'Dispatch Recall.ai Bot' : 'Dispatch AI Notetaker')
+                  ? (recallConfig.configured ? 'Dispatch Recall.ai Bot' : 'Start Demo Simulation')
                   : 'Schedule AI Notetaker'}
               </span>
               <ChevronRight className="h-3.5 w-3.5" />

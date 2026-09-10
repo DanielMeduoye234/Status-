@@ -238,6 +238,10 @@ function MeetingSummaryContent() {
       });
 
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to dispatch meeting bot');
+      }
+
       if (data.session) {
         setActiveBotSession(data.session);
         setBotSessions((prev) => [data.session, ...prev.filter((s) => s.id !== data.session.id)]);
@@ -260,42 +264,10 @@ function MeetingSummaryContent() {
         }
         return;
       }
-    } catch (dispatchErr) {
+    } catch (dispatchErr: any) {
       console.error('Error dispatching bot via API:', dispatchErr);
+      alert(`Bot dispatch failed: ${dispatchErr.message || 'Please check your connection or meeting link.'}`);
     }
-
-    // Fallback if API request threw network error
-    const fallbackSession: BotSession = {
-      id: `bot-${Date.now()}`,
-      meetingUrl: config.meetingUrl,
-      platform: config.platform,
-      title: sessionTitle,
-      projectId: config.projectId,
-      projectName: proj?.name,
-      botName: config.botName || 'Hexavia Notetaker',
-      status: 'connecting',
-      durationSeconds: 0,
-      participants: [],
-      transcriptChunks: [],
-      fullTranscript: '',
-      postGreeting: config.postGreeting,
-      scheduledTime: config.scheduledTime,
-      startedAt: new Date().toISOString(),
-      isRealBot: false,
-    };
-
-    setActiveBotSession(fallbackSession);
-    setBotSessions((prev) => [fallbackSession, ...prev]);
-    setInputMode('bot');
-    if (!meetingTitle) setMeetingTitle(fallbackSession.title);
-    if (config.projectId && !selectedProjectId) setSelectedProjectId(config.projectId);
-
-    setTimeout(() => {
-      setActiveBotSession((prev) => {
-        if (!prev || prev.id !== fallbackSession.id) return prev;
-        return { ...prev, status: 'waiting_room' };
-      });
-    }, 2000);
   };
 
   const handleQuickDispatch = (urlToUse?: string) => {

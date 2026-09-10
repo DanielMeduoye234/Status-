@@ -83,38 +83,18 @@ export async function POST(req: NextRequest) {
           message: 'Recall.ai Notetaker successfully dispatched to meeting.',
         });
       } catch (recallErr: any) {
-        console.error('Recall.ai dispatch error, falling back to simulated session:', recallErr);
-        // Fallback with error notice
-        const fallbackSession: BotSession = {
-          id: sessionId,
-          meetingUrl: meetingUrl.trim(),
-          platform: platformInfo.platform,
-          title: sessionTitle,
-          projectId: projectId || undefined,
-          projectName: projectName || undefined,
-          botName: botName.trim(),
-          status: 'connecting',
-          durationSeconds: 0,
-          participants: [],
-          transcriptChunks: [],
-          fullTranscript: '',
-          postGreeting,
-          scheduledTime,
-          startedAt: new Date().toISOString(),
-          isRealBot: false,
-          errorDetail: recallErr.message,
-        };
-
-        return NextResponse.json({
-          success: true,
-          isRealBot: false,
-          session: fallbackSession,
-          warning: `Recall.ai dispatch failed (${recallErr.message}). Started in interactive simulation mode.`,
-        });
+        console.error('Recall.ai dispatch error:', recallErr);
+        return NextResponse.json(
+          { 
+            error: `Failed to dispatch Recall.ai bot: ${recallErr.message}`,
+            details: recallErr.message
+          },
+          { status: 502 }
+        );
       }
     }
 
-    // 2. Simulation Mode (when RECALL_AI_API_KEY is not yet supplied)
+    // 2. Simulation Mode (when RECALL_AI_API_KEY is not yet supplied or forceSimulation is true)
     const simulatedSession: BotSession = {
       id: sessionId,
       meetingUrl: meetingUrl.trim(),
@@ -132,13 +112,18 @@ export async function POST(req: NextRequest) {
       scheduledTime,
       startedAt: new Date().toISOString(),
       isRealBot: false,
+      errorDetail: !recallConfigured 
+        ? 'RECALL_AI_API_KEY is not configured in server environment variables. Running in simulated demo mode.'
+        : undefined,
     };
 
     return NextResponse.json({
       success: true,
       isRealBot: false,
       session: simulatedSession,
-      message: 'Running in interactive simulation mode. Add RECALL_AI_API_KEY to dispatch a real meeting bot.',
+      warning: !recallConfigured 
+        ? 'RECALL_AI_API_KEY is not configured on this server (e.g. Vercel Environment Variables). Started in demo simulation mode.' 
+        : 'Running in interactive simulation mode.',
     });
   } catch (err: any) {
     console.error('Bot dispatch route error:', err);

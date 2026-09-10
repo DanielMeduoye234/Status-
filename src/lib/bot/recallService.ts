@@ -143,11 +143,6 @@ export async function dispatchRecallBot(params: DispatchRecallBotParams) {
     }
   }
 
-  // Transcription configuration
-  payload.transcription_options = {
-    provider: 'meeting_captions',
-  };
-
   // In-call greeting notice
   if (params.postGreeting !== false) {
     payload.chat = {
@@ -220,6 +215,7 @@ export async function getRecallBot(botId: string, apiKeyOverride?: string, regio
 
 /**
  * Retrieve transcript segments from Recall.ai and parse into Hexavia format
+ * Uses Recall.ai modern /transcript/?bot_id= endpoint & download_url
  */
 export async function getRecallBotTranscript(
   botId: string,
@@ -235,26 +231,80 @@ export async function getRecallBotTranscript(
   if (!apiKey) throw new Error('RECALL_AI_API_KEY is not configured.');
 
   const baseUrl = getRecallBaseUrl(regionOverride);
-  const response = await fetch(`${baseUrl}/bot/${botId}/transcript/`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Token ${apiKey}`,
-      'accept': 'application/json',
-    },
-    cache: 'no-store',
-  });
+  let segments: any[] = [];
 
-  if (!response.ok) {
-    // If transcript is not ready yet or 404, return empty
-    if (response.status === 404) {
-      return { chunks: [], fullTranscript: '', participants: [], rawSegments: [] };
+  try {
+    // 1. Query transcripts associated with this bot_id
+    const response = await fetch(`${baseUrl}/transcript/?bot_id=${botId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const results = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
+
+      for (const item of results) {
+        if (item.data?.download_url) {
+          try {
+            const dlRes = await fetch(item.data.download_url);
+            if (dlRes.ok) {
+              const dlData = await dlRes.json();
+              if (Array.isArray(dlData)) {
+                segments = dlData;
+                break;
+              }
+            }
+          } catch (dlErr) {
+            console.warn('Failed downloading transcript from download_url:', dlErr);
+          }
+        } else if (Array.isArray(item.words) || Array.isArray(item.transcript)) {
+          segments = item.words || item.transcript;
+          break;
+        }
+      }
     }
-    const errText = await response.text();
-    throw new Error(`Recall transcript error (${response.status}): ${errText}`);
+  } catch (err) {
+    console.warn('Error fetching transcript list for bot:', err);
   }
 
-  const segments: any[] = await response.json();
-  if (!Array.isArray(segments)) {
+  // 2. If segments not found yet, check bot media shortcuts
+  if (segments.length === 0) {
+    try {
+      const botRes = await fetch(`${baseUrl}/bot/${botId}/`, {
+        headers: {
+          'Authorization': `Token ${apiKey}`,
+          'accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+      if (botRes.ok) {
+        const botData = await botRes.json();
+        const recordings = botData.recordings || [];
+        for (const rec of recordings) {
+          const dlUrl = rec.media_shortcuts?.transcript?.data?.download_url;
+          if (dlUrl) {
+            const dlRes = await fetch(dlUrl);
+            if (dlRes.ok) {
+              const dlData = await dlRes.json();
+              if (Array.isArray(dlData)) {
+                segments = dlData;
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (botErr) {
+      console.warn('Error checking bot recordings for transcript:', botErr);
+    }
+  }
+
+  if (!Array.isArray(segments) || segments.length === 0) {
     return { chunks: [], fullTranscript: '', participants: [], rawSegments: [] };
   }
 

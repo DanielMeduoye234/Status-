@@ -258,17 +258,22 @@ export default function LiveBotMonitor({
         );
       case 'in_meeting':
       case 'transcribing':
-        return (
+        return session.isRealBot ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
             <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            {session.isRealBot ? 'LIVE • Recall.ai Transcribing' : 'LIVE • Transcribing Audio'}
+            LIVE • Recall.ai Transcribing
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 border border-amber-200">
+            <Sparkles className="h-3 w-3 text-amber-500" />
+            DEMO • Simulated Preview
           </span>
         );
       case 'completed':
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
             <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
-            Call Finished &bull; Transcript Ready
+            {session.isRealBot ? 'Call Finished • Transcript Ready' : 'Demo Completed • Sample Ready'}
           </span>
         );
       case 'error':
@@ -286,6 +291,24 @@ export default function LiveBotMonitor({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-md overflow-hidden transition-all">
       
+      {/* Simulation Warning Banner (When real bot is not active) */}
+      {!session.isRealBot && (
+        <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-start gap-3">
+          <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <span className="font-bold text-amber-950">Interactive Demo Simulation: </span>
+            A real bot was <strong>not</strong> dispatched to your meeting.
+            {session.errorDetail ? (
+              <span className="block mt-0.5 text-red-700 font-medium">{session.errorDetail}</span>
+            ) : (
+              <span className="block mt-0.5 text-amber-800">
+                To dispatch a real bot that knocks and joins your Google Meet/Zoom call, add <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono font-semibold">RECALL_AI_API_KEY</code> and <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono font-semibold">RECALL_AI_REGION</code> to your Vercel Environment Variables.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Top Banner Header */}
       <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
