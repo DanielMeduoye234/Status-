@@ -16,7 +16,8 @@ import {
   Zap, 
   ExternalLink,
   ChevronRight,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { 
