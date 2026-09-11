@@ -41,6 +41,7 @@ import { ExecutiveReportModal } from '@/components/export/ExecutiveReportModal';
 import InviteBotModal from '@/components/bot/InviteBotModal';
 import LiveBotMonitor from '@/components/bot/LiveBotMonitor';
 import BotSessionsDrawer from '@/components/bot/BotSessionsDrawer';
+import ConnectProjectModal from '@/components/bot/ConnectProjectModal';
 import { 
   BotSession, 
   MeetingPlatform, 
@@ -53,12 +54,14 @@ function MeetingSummaryContent() {
   const searchParams = useSearchParams();
   const summaryId = searchParams.get('id');
   const urlProjectId = searchParams.get('projectId');
-  const { projects, activeProject, saveMeetingSummary, deleteMeetingSummary, meetingSummaries } = useAuth();
+  const { user, projects, activeProject, saveMeetingSummary, updateMeetingSummary, deleteMeetingSummary, meetingSummaries } = useAuth();
 
   const [rawTranscript, setRawTranscript] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || activeProject?.id || '');
+  const [activeSummaryId, setActiveSummaryId] = useState<string | null>(summaryId || null);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [fileName, setFileName] = useState('');
   
   // Input mode tab: upload file, paste text, or live AI bot
@@ -85,6 +88,7 @@ function MeetingSummaryContent() {
   // Load existing summary if ?id= is in URL
   useEffect(() => {
     if (summaryId) {
+      setActiveSummaryId(summaryId);
       const existing = meetingSummaries.find((s) => s.id === summaryId);
       if (existing) {
         setMeetingTitle(existing.title);
@@ -112,6 +116,13 @@ function MeetingSummaryContent() {
       setSelectedProjectId(activeProject.id);
     }
   }, [urlProjectId, activeProject, selectedProjectId]);
+
+  const handleConnectProject = async (newProjectId: string | null) => {
+    if (activeSummaryId) {
+      await updateMeetingSummary(activeSummaryId, { project_id: newProjectId });
+    }
+    setSelectedProjectId(newProjectId || '');
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -148,7 +159,12 @@ function MeetingSummaryContent() {
     reader.readAsText(file);
   };
 
-  const executeProcessing = async (textOverride?: string, titleOverride?: string, projOverride?: string) => {
+  const executeProcessing = async (
+    textOverride?: string, 
+    titleOverride?: string, 
+    projOverride?: string,
+    promptProjectAssignment = false
+  ) => {
     const textToProcess = textOverride || rawTranscript;
     if (!textToProcess.trim()) return;
 
@@ -180,7 +196,7 @@ function MeetingSummaryContent() {
       }
 
       // Auto-save to Supabase & local state
-      await saveMeetingSummary({
+      const saved = await saveMeetingSummary({
         title: titleToUse || data.title || 'Meeting Summary',
         meeting_date: meetingDate,
         project_id: projToUse || null,
@@ -195,7 +211,16 @@ function MeetingSummaryContent() {
         participants: data.participants,
       });
 
+      if (saved?.id) {
+        setActiveSummaryId(saved.id);
+      }
+
       setSavedSuccess(true);
+
+      // Prompt PM with project connection modal
+      if (promptProjectAssignment || !projToUse) {
+        setIsConnectModalOpen(true);
+      }
     } catch (err) {
       console.error(err);
       alert('Error generating summary. Please check your transcript.');
@@ -234,6 +259,7 @@ function MeetingSummaryContent() {
           scheduledTime: config.scheduledTime,
           postGreeting: config.postGreeting,
           language: config.language,
+          userId: user?.id,
         }),
       });
 
@@ -295,14 +321,19 @@ function MeetingSummaryContent() {
     setBotSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   };
 
-  const handleImportBotTranscript = (transcriptText: string, title: string, projId?: string) => {
+  const handleImportBotTranscript = (
+    transcriptText: string, 
+    title: string, 
+    projId?: string,
+    autoPromptProject = true
+  ) => {
     setRawTranscript(transcriptText);
     if (title) setMeetingTitle(title);
     if (projId) setSelectedProjectId(projId);
     setFileName(`ai-bot-${new Date().toISOString().split('T')[0]}.txt`);
 
-    // Execute processing immediately
-    executeProcessing(transcriptText, title, projId);
+    // Execute processing immediately and prompt PM with project assignment
+    executeProcessing(transcriptText, title, projId, autoPromptProject);
   };
 
   const handleCopyMarkdown = () => {
@@ -471,6 +502,7 @@ function MeetingSummaryContent() {
                   onUpdateSession={handleUpdateBotSession}
                   onImportTranscript={handleImportBotTranscript}
                   onDismiss={() => setActiveBotSession(null)}
+                  isSummarizing={loading}
                 />
               ) : (
                 /* Launchpad Card */
@@ -727,11 +759,11 @@ function MeetingSummaryContent() {
                         <Users className="h-3.5 w-3.5 text-slate-400" />
                         {summaryResult.participants?.join(', ') || 'Team Attendees'}
                       </span>
-                      {selectedProjectId && (() => {
+                      {selectedProjectId ? (() => {
                         const proj = projects.find((p) => p.id === selectedProjectId);
                         if (!proj) return null;
                         return (
-                          <>
+                          <div className="flex items-center gap-1.5">
                             <span>•</span>
                             <Link
                               href={`/projects/${proj.id}`}
@@ -741,13 +773,40 @@ function MeetingSummaryContent() {
                               <span>Project: {proj.name}</span>
                               <ExternalLink className="h-2.5 w-2.5" />
                             </Link>
-                          </>
+                            <button
+                              type="button"
+                              onClick={() => setIsConnectModalOpen(true)}
+                              className="text-[10px] font-semibold text-slate-500 hover:text-blue-600 underline ml-1 cursor-pointer"
+                            >
+                              (Change)
+                            </button>
+                          </div>
                         );
-                      })()}
+                      })() : (
+                        <div className="flex items-center gap-1.5">
+                          <span>•</span>
+                          <button
+                            type="button"
+                            onClick={() => setIsConnectModalOpen(true)}
+                            className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                          >
+                            <span>⚡ Unassigned • Connect to Project</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsConnectModalOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 shadow-sm transition-colors cursor-pointer"
+                      title="Assign or change associated project"
+                    >
+                      <FolderKanban className="h-3.5 w-3.5 text-blue-600" />
+                      <span>{selectedProjectId ? 'Change Project' : 'Connect to Project'}</span>
+                    </button>
+
                     {summaryId && (
                       <button
                         onClick={handleDeleteSummary}
@@ -807,6 +866,26 @@ function MeetingSummaryContent() {
                   </div>
                 </div>
 
+                {!selectedProjectId && (
+                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl bg-linear-to-r from-amber-50 to-orange-50 px-4 py-3 text-xs border border-amber-200 shadow-2xs">
+                    <div className="flex items-center gap-2.5">
+                      <FolderKanban className="h-4 w-4 text-amber-600 shrink-0" />
+                      <div>
+                        <span className="font-bold text-amber-950">This meeting summary is not connected to a project yet.</span>
+                        <p className="text-[11px] text-amber-800">Assigning it to a project links all action items, decisions, and feeds into monthly status reports.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsConnectModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-colors shrink-0 cursor-pointer"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>Connect to Project</span>
+                    </button>
+                  </div>
+                )}
+
                 {summaryResult.warning && (
                   <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 border border-amber-200">
                     <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
@@ -820,7 +899,7 @@ function MeetingSummaryContent() {
                       <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
                       <span>Meeting summary recorded successfully!</span>
                     </div>
-                    {selectedProjectId && (
+                    {selectedProjectId ? (
                       <Link
                         href={`/projects/${selectedProjectId}`}
                         className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-colors self-start sm:self-auto"
@@ -828,6 +907,15 @@ function MeetingSummaryContent() {
                         <span>Open in Project Records</span>
                         <ArrowRight className="h-3 w-3" />
                       </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsConnectModalOpen(true)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 underline self-start sm:self-auto cursor-pointer"
+                      >
+                        <span>Connect to a Project now</span>
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
                     )}
                   </div>
                 )}
@@ -1296,6 +1384,28 @@ function MeetingSummaryContent() {
           }
         }}
       />
+
+      {/* Connect to Project Modal */}
+      {summaryResult && (
+        <ConnectProjectModal
+          isOpen={isConnectModalOpen}
+          onClose={() => setIsConnectModalOpen(false)}
+          summary={{
+            id: activeSummaryId || summaryId || undefined,
+            title: meetingTitle || summaryResult.title || 'Meeting Summary',
+            meeting_date: meetingDate,
+            executive_summary: summaryResult.executive_summary,
+            action_items: summaryResult.action_items,
+            key_decisions: summaryResult.key_decisions,
+            key_blockers: summaryResult.key_blockers,
+            participants: summaryResult.participants,
+            durationSeconds: activeBotSession?.durationSeconds,
+            summary_markdown: summaryResult.summary_markdown,
+          }}
+          currentProjectId={selectedProjectId || null}
+          onConnect={handleConnectProject}
+        />
+      )}
     </div>
   );
 }

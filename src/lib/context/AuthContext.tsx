@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { createClient } from '../supabase/client';
 import { User } from '@supabase/supabase-js';
 
@@ -59,12 +59,14 @@ interface AuthContextType {
   projects: Project[];
   activeProject: Project | null;
   meetingSummaries: MeetingSummaryItem[];
+  unassignedMeetings: MeetingSummaryItem[];
   monthlyReports: MonthlyReportItem[];
   setActiveProject: (project: Project | null) => void;
   createProject: (projectData: Partial<Project>) => Promise<Project>;
   updateProject: (projectId: string, updates: Partial<Project>) => Promise<Project | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
   saveMeetingSummary: (summary: Omit<MeetingSummaryItem, 'id' | 'created_at'>) => Promise<MeetingSummaryItem>;
+  updateMeetingSummary: (summaryId: string, updates: Partial<MeetingSummaryItem>) => Promise<MeetingSummaryItem | null>;
   deleteMeetingSummary: (summaryId: string) => Promise<boolean>;
   saveMonthlyReport: (report: Omit<MonthlyReportItem, 'id' | 'created_at'>) => Promise<MonthlyReportItem>;
   deleteMonthlyReport: (reportId: string) => Promise<boolean>;
@@ -361,6 +363,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return newItem;
   };
 
+  const updateMeetingSummary = async (
+    summaryId: string,
+    updates: Partial<MeetingSummaryItem>
+  ): Promise<MeetingSummaryItem | null> => {
+    let updatedItem: MeetingSummaryItem | null = null;
+
+    if (user && isValidUUID(summaryId)) {
+      try {
+        const payload: any = {
+          updated_at: new Date().toISOString(),
+        };
+        if (updates.project_id !== undefined) {
+          payload.project_id = isValidUUID(updates.project_id) ? updates.project_id : null;
+        }
+        if (updates.title !== undefined) payload.title = updates.title;
+        if (updates.meeting_date !== undefined) payload.meeting_date = updates.meeting_date;
+        if (updates.executive_summary !== undefined) payload.executive_summary = updates.executive_summary;
+        if (updates.summary_markdown !== undefined) payload.summary_markdown = updates.summary_markdown;
+        if (updates.action_items !== undefined) payload.action_items = updates.action_items;
+        if (updates.key_decisions !== undefined) payload.key_decisions = updates.key_decisions;
+        if (updates.key_blockers !== undefined) payload.key_blockers = updates.key_blockers;
+        if (updates.who_said_what !== undefined) payload.who_said_what = updates.who_said_what;
+        if (updates.participants !== undefined) payload.participants = updates.participants;
+
+        const { data, error } = await supabase
+          .from('meeting_summaries')
+          .update(payload)
+          .eq('id', summaryId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          updatedItem = data;
+        }
+      } catch (e) {
+        console.warn('Supabase update meeting error:', e);
+      }
+    }
+
+    const updatedList = meetingSummaries.map((m) => {
+      if (m.id === summaryId) {
+        const merged = { ...m, ...updates };
+        if (!updatedItem) updatedItem = merged;
+        return merged;
+      }
+      return m;
+    });
+
+    setMeetingSummaries(updatedList);
+    localStorage.setItem('hexavia_meetings', JSON.stringify(updatedList));
+    return updatedItem;
+  };
+
   const deleteMeetingSummary = async (summaryId: string): Promise<boolean> => {
     if (user && isValidUUID(summaryId)) {
       try {
@@ -375,6 +430,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('hexavia_meetings', JSON.stringify(updated));
     return true;
   };
+
+  const unassignedMeetings = useMemo(() => {
+    return meetingSummaries.filter((m) => !m.project_id);
+  }, [meetingSummaries]);
 
   const saveMonthlyReport = async (
     report: Omit<MonthlyReportItem, 'id' | 'created_at'>
@@ -467,12 +526,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         projects,
         activeProject,
         meetingSummaries,
+        unassignedMeetings,
         monthlyReports,
         setActiveProject,
         createProject,
         updateProject,
         deleteProject,
         saveMeetingSummary,
+        updateMeetingSummary,
         deleteMeetingSummary,
         saveMonthlyReport,
         deleteMonthlyReport,

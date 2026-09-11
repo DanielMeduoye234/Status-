@@ -16,13 +16,16 @@ import {
   Plus, 
   Users, 
   ChevronRight,
-  BarChart3
+  BarChart3,
+  Sparkles
 } from 'lucide-react';
 import ProjectModal from '@/components/ProjectModal';
+import ConnectProjectModal from '@/components/bot/ConnectProjectModal';
 
 export default function DashboardPage() {
-  const { user, projects, activeProject, meetingSummaries, monthlyReports } = useAuth();
+  const { user, projects, activeProject, meetingSummaries, unassignedMeetings, monthlyReports, updateMeetingSummary } = useAuth();
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [connectingMeeting, setConnectingMeeting] = useState<any | null>(null);
 
   // Calculate action item counts
   const totalActionItems = meetingSummaries.reduce((acc, curr) => {
@@ -93,6 +96,78 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* UNASSIGNED MEETINGS INBOX BANNER */}
+        {unassignedMeetings.length > 0 && (
+          <div className="rounded-2xl border border-amber-300 bg-linear-to-r from-amber-50 via-orange-50/50 to-white p-5 sm:p-6 shadow-xs animate-in fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-600 text-white shadow-sm shrink-0 mt-0.5 ring-4 ring-amber-100">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-200/70 px-2 py-0.5 rounded-full">
+                      Action Required ({unassignedMeetings.length})
+                    </span>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Unassigned Meeting Summaries Ready to Connect
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 max-w-2xl">
+                    Your AI meeting notetaker has transcribed and summarized {unassignedMeetings.length} {unassignedMeetings.length === 1 ? 'meeting' : 'meetings'} that {unassignedMeetings.length === 1 ? 'is' : 'are'} awaiting assignment to a project.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-3.5 border-t border-amber-200/60">
+              {unassignedMeetings.slice(0, 3).map((meeting) => (
+                <div
+                  key={meeting.id}
+                  className="rounded-xl border border-amber-200 bg-white p-3.5 shadow-2xs flex flex-col justify-between hover:border-amber-400 transition-colors"
+                >
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 truncate">
+                      {meeting.title}
+                    </h4>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3 text-slate-400" />
+                        {meeting.meeting_date}
+                      </span>
+                      <span>•</span>
+                      <span>{meeting.action_items?.length || 0} actions</span>
+                    </div>
+                    {meeting.executive_summary && (
+                      <p className="text-[11px] text-slate-600 line-clamp-2 mt-2 leading-relaxed">
+                        {meeting.executive_summary}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setConnectingMeeting(meeting)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    >
+                      <FolderKanban className="h-3.5 w-3.5" />
+                      <span>Connect Project</span>
+                    </button>
+
+                    <Link
+                      href={`/meeting-summary?id=${meeting.id}`}
+                      className="text-xs font-semibold text-slate-500 hover:text-blue-600"
+                    >
+                      Preview →
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* THE 2 CORE PM ACTION BOXES */}
         <div>
@@ -237,13 +312,21 @@ export default function DashboardPage() {
                       <div className="truncate pr-3">
                         <div className="flex items-center gap-2 truncate">
                           <p className="text-xs font-bold text-slate-900 truncate">{item.title}</p>
-                          {proj && (
+                          {proj ? (
                             <Link
                               href={`/projects/${proj.id}`}
                               className="rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 hover:bg-blue-100 transition-colors"
                             >
                               {proj.name}
                             </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConnectingMeeting(item)}
+                              className="rounded-full bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 px-2 py-0.5 text-[10px] font-bold flex-shrink-0 transition-colors cursor-pointer"
+                            >
+                              ⚡ Connect Project
+                            </button>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
@@ -348,6 +431,30 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* Connect to Project Modal */}
+        {connectingMeeting && (
+          <ConnectProjectModal
+            isOpen={Boolean(connectingMeeting)}
+            onClose={() => setConnectingMeeting(null)}
+            summary={{
+              id: connectingMeeting.id,
+              title: connectingMeeting.title,
+              meeting_date: connectingMeeting.meeting_date,
+              executive_summary: connectingMeeting.executive_summary,
+              action_items: connectingMeeting.action_items,
+              key_decisions: connectingMeeting.key_decisions,
+              key_blockers: connectingMeeting.key_blockers,
+              participants: connectingMeeting.participants,
+              summary_markdown: connectingMeeting.summary_markdown,
+            }}
+            currentProjectId={connectingMeeting.project_id}
+            onConnect={async (projectId) => {
+              await updateMeetingSummary(connectingMeeting.id, { project_id: projectId });
+              setConnectingMeeting(null);
+            }}
+          />
+        )}
 
         {/* Project Modal */}
         <ProjectModal

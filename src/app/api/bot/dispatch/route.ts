@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
       scheduledTime, 
       postGreeting = true, 
       language = 'en-US',
-      forceSimulation = false 
+      forceSimulation = false,
+      userId = ''
     } = body;
 
     if (!meetingUrl || typeof meetingUrl !== 'string' || !meetingUrl.trim()) {
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
             app: 'Hexavia Status',
             sessionId,
             projectId: projectId || '',
+            userId: userId || '',
+            title: sessionTitle,
           },
         });
 

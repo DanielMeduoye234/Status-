@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   RefreshCw,
   Zap,
+  FolderKanban,
   X
 } from 'lucide-react';
 import { 
@@ -35,8 +36,9 @@ import {
 interface LiveBotMonitorProps {
   session: BotSession;
   onUpdateSession: (updatedSession: BotSession) => void;
-  onImportTranscript: (fullTranscript: string, title: string, projectId?: string) => void;
+  onImportTranscript: (fullTranscript: string, title: string, projectId?: string, autoPromptProject?: boolean) => void;
   onDismiss: () => void;
+  isSummarizing?: boolean;
 }
 
 export default function LiveBotMonitor({
@@ -44,11 +46,25 @@ export default function LiveBotMonitor({
   onUpdateSession,
   onImportTranscript,
   onDismiss,
+  isSummarizing = false,
 }: LiveBotMonitorProps) {
   const [copied, setCopied] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const hasAutoTriggeredRef = useRef(false);
 
   const platformInfo = detectMeetingPlatform(session.meetingUrl);
+
+  // Auto-trigger summarization and project assignment when meeting ends for everyone
+  useEffect(() => {
+    if (session.status === 'completed' && !hasAutoTriggeredRef.current) {
+      hasAutoTriggeredRef.current = true;
+      const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
+      const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
+      if (fullText.trim()) {
+        onImportTranscript(fullText, session.title, session.projectId, true);
+      }
+    }
+  }, [session.status, session.fullTranscript, session.platform, session.title, session.projectId, onImportTranscript]);
 
   // Format seconds into HH:MM:SS or MM:SS
   const formatTime = (seconds: number) => {
@@ -273,7 +289,11 @@ export default function LiveBotMonitor({
         return (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
             <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
-            {session.isRealBot ? 'Call Finished • Transcript Ready' : 'Demo Completed • Sample Ready'}
+            {isSummarizing 
+              ? 'Meeting Ended • AI Summarizing...' 
+              : session.isRealBot 
+                ? 'Call Ended • Summary Ready' 
+                : 'Demo Finished • Summary Ready'}
           </span>
         );
       case 'error':
@@ -431,6 +451,54 @@ export default function LiveBotMonitor({
         </div>
       )}
 
+      {/* Completed State Banner */}
+      {session.status === 'completed' && (
+        <div className="m-4 rounded-xl border border-blue-200 bg-linear-to-r from-blue-50/90 via-indigo-50/40 to-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white shrink-0 shadow-sm mt-0.5">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-900">Meeting Concluded for Everyone</h4>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  All Attendees Finished
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                {isSummarizing 
+                  ? 'AI is parsing the complete conversation, extracting action items and executive decisions...'
+                  : 'Meeting notes synthesized! Connect this summary to a project to update your project status.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
+              const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
+              onImportTranscript(fullText, session.title, session.projectId, true);
+            }}
+            disabled={isSummarizing}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+          >
+            {isSummarizing ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Generating Summary...</span>
+              </>
+            ) : (
+              <>
+                <FolderKanban className="h-3.5 w-3.5" />
+                <span>Connect to Project</span>
+                <ArrowRight className="h-3 w-3" />
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Audio Waveform & Active Speaker (when live in meeting) */}
       {session.status === 'in_meeting' && (
         <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between">
@@ -579,25 +647,38 @@ export default function LiveBotMonitor({
           )}
         </div>
 
-        {/* Right Side: High-converting Generate Summary Handoff Button */}
+        {/* Right Side: High-converting Generate Summary / Connect Project Handoff Button */}
         <div className="w-full sm:w-auto">
           <button
             type="button"
+            disabled={isSummarizing}
             onClick={() => {
               if (!session.fullTranscript && !session.isRealBot) {
                 handleFastForward();
               }
+              const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
+              const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
               onImportTranscript(
-                session.fullTranscript || '',
+                fullText,
                 session.title,
-                session.projectId
+                session.projectId,
+                session.status === 'completed'
               );
             }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition-all cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 disabled:opacity-50 transition-all cursor-pointer"
           >
-            <Sparkles className="h-4 w-4" />
-            <span>Generate Meeting Summary</span>
-            <ArrowRight className="h-3.5 w-3.5" />
+            {isSummarizing ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Synthesizing Summary...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                <span>{session.status === 'completed' ? 'Connect to Project' : 'Generate Meeting Summary'}</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </>
+            )}
           </button>
         </div>
 

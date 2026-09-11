@@ -258,7 +258,7 @@ export default function InviteBotModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-                <span>Associated Project</span>
+                <span>Default Project Destination</span>
                 <span className="text-[10px] text-slate-400 font-normal">Optional</span>
               </label>
               <select
@@ -266,13 +266,16 @@ export default function InviteBotModal({
                 onChange={(e) => setSelectedProjectId(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
               >
-                <option value="">-- No Project (Ad-hoc) --</option>
+                <option value="">-- Choose After Meeting Concludes --</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
               </select>
+              <p className="text-[10px] text-slate-400 mt-1">
+                When the meeting ends, you will review the AI summary and can connect it to any project.
+              </p>
             </div>
           </div>
 
