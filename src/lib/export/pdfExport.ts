@@ -1,8 +1,4 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
 import jsPDF from 'jspdf';
-import { ExecutiveMeetingTemplate } from '@/components/export/ExecutiveMeetingTemplate';
-import { ExecutiveMonthlyTemplate } from '@/components/export/ExecutiveMonthlyTemplate';
 
 export interface MeetingPDFData {
   title: string;
@@ -84,139 +80,43 @@ function sanitizeFileName(name: string): string {
 }
 
 /**
- * Primary Engine: Export Meeting Summary via high-fidelity Executive HTML Template & html2pdf.js
+ * Sanitizes a string for clean PDF rendering in helvetica font
+ */
+function sanitizeText(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u2026/g, '...')
+    .replace(/\u2022/g, '*')
+    .replace(/[\u2700-\u27BF\uE000-\uF8FF\uD83C-\uDBFF\uDC00-\uDFFF]/g, '');
+}
+
+/**
+ * Primary Engine: Export Meeting Summary via native vector jsPDF
+ * Direct vector generation ensures 100% reliable output with crisp text,
+ * zero blank page bugs, exact pagination, and instant performance.
  */
 export async function exportMeetingSummaryPDF(data: MeetingPDFData): Promise<void> {
-  const docTitle = data.title || 'Meeting Summary';
-  const cleanName = sanitizeFileName(docTitle);
-  const dateSuffix = data.meeting_date ? `_${data.meeting_date}` : '';
-  const finalFilename = `meeting_summary_${cleanName}${dateSuffix}.pdf`;
-
   if (typeof window === 'undefined') {
     return;
   }
-
-  try {
-    // 1. Create a mounted, styled off-screen element
-    const container = document.createElement('div');
-    container.id = 'pdf-render-sandbox';
-    container.style.position = 'absolute';
-    container.style.top = '-99999px';
-    container.style.left = '0';
-    container.style.width = '850px';
-    container.style.backgroundColor = '#ffffff';
-    container.style.zIndex = '-9999';
-    document.body.appendChild(container);
-
-    const root = createRoot(container);
-    root.render(React.createElement(ExecutiveMeetingTemplate, { data, theme: 'navy' }));
-
-    // Wait for React DOM render & font layout
-    await new Promise((resolve) => setTimeout(resolve, 450));
-
-    // Dynamic import of html2pdf.js to avoid SSR issues
-    const html2pdfModule = await import('html2pdf.js');
-    const html2pdf = (html2pdfModule as any).default || html2pdfModule;
-
-    const opt = {
-      margin: [10, 8, 10, 8],
-      filename: finalFilename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        letterRendering: true,
-        scrollY: 0,
-        windowWidth: 900,
-        logging: false,
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: {
-        mode: ['avoid-all', 'css', 'legacy'],
-        avoid: ['.pdf-page-break-avoid', 'tr', '.rounded-xl', 'table'],
-      },
-    };
-
-    await html2pdf().set(opt).from(container).save();
-
-    // Clean up DOM
-    root.unmount();
-    container.remove();
-  } catch (err) {
-    console.warn('html2pdf renderer encountered an issue, falling back to direct PDF engine:', err);
-    // Bulletproof Fallback Engine
-    await exportMeetingSummaryDirectPDF(data);
-  }
+  return exportMeetingSummaryDirectPDF(data);
 }
 
 /**
- * Primary Engine: Export Monthly Status Report via high-fidelity Executive HTML Template & html2pdf.js
+ * Primary Engine: Export Monthly Status Report via native vector jsPDF
  */
 export async function exportMonthlyReportPDF(data: MonthlyReportPDFData): Promise<void> {
-  const docTitle = data.title || 'Monthly Status Report';
-  const cleanName = sanitizeFileName(docTitle);
-  const dateSuffix = data.month_year ? `_${data.month_year}` : '';
-  const finalFilename = `monthly_report_${cleanName}${dateSuffix}.pdf`;
-
   if (typeof window === 'undefined') {
     return;
   }
-
-  try {
-    const container = document.createElement('div');
-    container.id = 'pdf-render-sandbox-monthly';
-    container.style.position = 'absolute';
-    container.style.top = '-99999px';
-    container.style.left = '0';
-    container.style.width = '850px';
-    container.style.backgroundColor = '#ffffff';
-    container.style.zIndex = '-9999';
-    document.body.appendChild(container);
-
-    const root = createRoot(container);
-    root.render(React.createElement(ExecutiveMonthlyTemplate, { data, theme: 'navy' }));
-
-    await new Promise((resolve) => setTimeout(resolve, 450));
-
-    const html2pdfModule = await import('html2pdf.js');
-    const html2pdf = (html2pdfModule as any).default || html2pdfModule;
-
-    const opt = {
-      margin: [10, 8, 10, 8],
-      filename: finalFilename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        letterRendering: true,
-        scrollY: 0,
-        windowWidth: 900,
-        logging: false,
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: {
-        mode: ['avoid-all', 'css', 'legacy'],
-        avoid: ['.pdf-page-break-avoid', 'tr', '.rounded-xl', 'table'],
-      },
-    };
-
-    await html2pdf().set(opt).from(container).save();
-
-    root.unmount();
-    container.remove();
-  } catch (err) {
-    console.warn('html2pdf renderer encountered an issue, falling back to direct PDF engine:', err);
-    await exportMonthlyReportDirectPDF(data);
-  }
+  return exportMonthlyReportDirectPDF(data);
 }
 
 /**
- * Bulletproof Fallback Engine: Direct jsPDF generator
- * Fixed all bugs:
- * - NO unicode glyphs (prevents font encoding tracking corruption)
- * - Dynamic title height to prevent banner collision
- * - Schema mapping for action item assignees & speaker breakdown
- * - Non-truncated deadline columns
+ * High-Fidelity Vector jsPDF Generator for Meeting Summaries
  */
 export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promise<void> {
   const doc = new jsPDF({
@@ -241,7 +141,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text(`${docTitle.slice(0, 45)} - Hexavia Status Records`, margin, y);
+      doc.text(`${sanitizeText(docTitle).slice(0, 45)} - Hexavia Status Records`, margin, y);
       doc.setDrawColor(226, 232, 240);
       doc.line(margin, y + 4, pageWidth - margin, y + 4);
       y += 24;
@@ -263,13 +163,14 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
   const subtitle = 'EXECUTIVE MEETING INTELLIGENCE REPORT';
   doc.text(subtitle, pageWidth - margin - 12 - doc.getTextWidth(subtitle), y + 18);
 
-  y += 42; // generous spacing to prevent title collision
+  y += 42;
 
   // 2. MEETING TITLE
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  const titleLines = doc.splitTextToSize(docTitle, contentWidth);
+  const cleanTitle = sanitizeText(docTitle);
+  const titleLines = doc.splitTextToSize(cleanTitle, contentWidth);
   doc.text(titleLines, margin, y);
   y += titleLines.length * 20 + 8;
 
@@ -290,13 +191,13 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
   metaX += doc.getTextWidth(dateStr) + 16;
 
   if (data.projectName) {
-    const projStr = `Project: ${data.projectName}`;
+    const projStr = `Project: ${sanitizeText(data.projectName)}`;
     doc.text(projStr, metaX, metaY);
     metaX += doc.getTextWidth(projStr) + 16;
   }
 
   if (data.file_name) {
-    const fileStr = `Source: ${data.file_name}`;
+    const fileStr = `Source: ${sanitizeText(data.file_name)}`;
     doc.text(fileStr, metaX, metaY);
   }
 
@@ -314,14 +215,15 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(30, 41, 59);
-    const participantsText = data.participants.join(', ');
+    const participantsText = sanitizeText(data.participants.join(', '));
     const partLines = doc.splitTextToSize(participantsText, contentWidth);
     doc.text(partLines, margin, y);
     y += partLines.length * 11 + 14;
   }
 
   // 4. EXECUTIVE SUMMARY
-  if (data.executive_summary) {
+  const summaryText = data.executive_summary || data.summary_markdown || '';
+  if (summaryText) {
     checkPageBreak(70);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -332,7 +234,8 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(51, 65, 85);
-    const execLines = doc.splitTextToSize(data.executive_summary, contentWidth - 20);
+    const cleanSummary = sanitizeText(summaryText.replace(/#{1,6}\s+/g, '').trim());
+    const execLines = doc.splitTextToSize(cleanSummary, contentWidth - 20);
     const boxHeight = execLines.length * 13 + 18;
     checkPageBreak(boxHeight);
 
@@ -369,15 +272,19 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 20;
 
     data.action_items.forEach((item) => {
-      const taskText = typeof item === 'string' ? item : (item.task || item.item || JSON.stringify(item));
+      const taskText = typeof item === 'string' ? item : (item.task || item.item || (item as any).description || JSON.stringify(item));
       const ownerText = (typeof item === 'object' && item && (item.assignee || item.owner)) 
         ? String(item.assignee || item.owner) 
         : 'Team';
       const deadlineVal = typeof item === 'object' && item ? (item.deadline || item.due_date) : undefined;
       const deadlineText = deadlineVal ? String(deadlineVal) : 'TBD';
 
-      const taskLines = doc.splitTextToSize(`[ ] ${taskText}`, 315);
-      const deadlineLines = doc.splitTextToSize(deadlineText, 85);
+      const cleanTask = sanitizeText(taskText);
+      const cleanOwner = sanitizeText(ownerText);
+      const cleanDeadline = sanitizeText(deadlineText);
+
+      const taskLines = doc.splitTextToSize(`[ ] ${cleanTask}`, 315);
+      const deadlineLines = doc.splitTextToSize(cleanDeadline, 85);
       const rowHeight = Math.max(taskLines.length * 11 + 8, deadlineLines.length * 11 + 8, 20);
 
       checkPageBreak(rowHeight);
@@ -389,7 +296,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
 
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(71, 85, 105);
-      doc.text(ownerText.slice(0, 18), margin + 330, y + 10);
+      doc.text(cleanOwner.slice(0, 18), margin + 330, y + 10);
 
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(100, 116, 139);
@@ -404,7 +311,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 14;
   }
 
-  // 6. KEY DECISIONS (ASCII safe bullet [x] instead of unicode checkmark)
+  // 6. KEY DECISIONS
   if (data.key_decisions && data.key_decisions.length > 0) {
     checkPageBreak(50);
     doc.setFont('helvetica', 'bold');
@@ -414,8 +321,9 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 12;
 
     data.key_decisions.forEach((dec) => {
-      const decText = typeof dec === 'string' ? dec : JSON.stringify(dec);
-      const decLines = doc.splitTextToSize(`* ${decText}`, contentWidth - 12);
+      const decText = typeof dec === 'string' ? dec : ((dec as any).decision || (dec as any).text || JSON.stringify(dec));
+      const cleanDec = sanitizeText(decText);
+      const decLines = doc.splitTextToSize(`* ${cleanDec}`, contentWidth - 12);
       const itemHeight = decLines.length * 12 + 6;
 
       checkPageBreak(itemHeight);
@@ -430,7 +338,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 12;
   }
 
-  // 7. KEY BLOCKERS (ASCII safe bullet [!] instead of unicode warning triangle)
+  // 7. KEY BLOCKERS
   if (data.key_blockers && data.key_blockers.length > 0) {
     checkPageBreak(50);
     doc.setFont('helvetica', 'bold');
@@ -440,8 +348,9 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 12;
 
     data.key_blockers.forEach((blk) => {
-      const blkText = typeof blk === 'string' ? blk : JSON.stringify(blk);
-      const blkLines = doc.splitTextToSize(`! ${blkText}`, contentWidth - 12);
+      const blkText = typeof blk === 'string' ? blk : ((blk as any).blocker || (blk as any).risk || (blk as any).text || JSON.stringify(blk));
+      const cleanBlk = sanitizeText(blkText);
+      const blkLines = doc.splitTextToSize(`! ${cleanBlk}`, contentWidth - 12);
       const itemHeight = blkLines.length * 12 + 6;
 
       checkPageBreak(itemHeight);
@@ -456,7 +365,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 12;
   }
 
-  // 8. WHO SAID WHAT (SPEAKER BREAKDOWN WITH REAL POINTS & COMMITMENTS)
+  // 8. WHO SAID WHAT
   if (data.who_said_what && data.who_said_what.length > 0) {
     checkPageBreak(60);
     doc.setFont('helvetica', 'bold');
@@ -466,7 +375,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 14;
 
     data.who_said_what.forEach((item) => {
-      const speaker = item.speaker || item.participant || 'Speaker';
+      const speaker = item.speaker || item.participant || (item as any).name || 'Speaker';
       const pointsList: string[] = [];
 
       if (Array.isArray(item.main_points) && item.main_points.length > 0) {
@@ -486,7 +395,8 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
       }
 
       const formattedDiscussion = pointsList.length > 0 ? pointsList.join('\n- ') : 'Contributed to meeting proceedings.';
-      const discLines = doc.splitTextToSize(`- ${formattedDiscussion}`, contentWidth - 20);
+      const cleanDisc = sanitizeText(formattedDiscussion);
+      const discLines = doc.splitTextToSize(`- ${cleanDisc}`, contentWidth - 20);
       const cardHeight = discLines.length * 11 + 26;
 
       checkPageBreak(cardHeight);
@@ -498,7 +408,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(37, 99, 235);
-      doc.text(speaker, margin + 10, y + 13);
+      doc.text(sanitizeText(speaker), margin + 10, y + 13);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
@@ -509,7 +419,30 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     });
   }
 
-  // 9. FOOTERS WITH PAGE NUMBERS
+  // 9. FALLBACK: RAW NOTES (If no structured summary exists)
+  if (!summaryText && (!data.action_items || data.action_items.length === 0) && data.summary_markdown) {
+    checkPageBreak(60);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(37, 99, 235);
+    doc.text('MEETING NOTES & SYNTHESIS', margin, y);
+    y += 12;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(51, 65, 85);
+    const cleanNotes = sanitizeText(data.summary_markdown);
+    const rawLines = doc.splitTextToSize(cleanNotes, contentWidth);
+    
+    for (const line of rawLines) {
+      checkPageBreak(14);
+      doc.text(line, margin, y);
+      y += 13;
+    }
+    y += 14;
+  }
+
+  // 10. FOOTERS WITH PAGE NUMBERS
   const totalPages = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
@@ -529,7 +462,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
 }
 
 /**
- * Bulletproof Fallback Engine: Direct Monthly Report jsPDF generator
+ * High-Fidelity Vector jsPDF Generator for Monthly Status Reports
  */
 export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): Promise<void> {
   const doc = new jsPDF({
@@ -554,7 +487,7 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text(`${docTitle.slice(0, 45)} - Hexavia Status Reports`, margin, y);
+      doc.text(`${sanitizeText(docTitle).slice(0, 45)} - Hexavia Status Reports`, margin, y);
       doc.setDrawColor(226, 232, 240);
       doc.line(margin, y + 4, pageWidth - margin, y + 4);
       y += 24;
@@ -582,7 +515,7 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  const titleLines = doc.splitTextToSize(docTitle, contentWidth);
+  const titleLines = doc.splitTextToSize(sanitizeText(docTitle), contentWidth);
   doc.text(titleLines, margin, y);
   y += titleLines.length * 20 + 8;
 
@@ -603,7 +536,7 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
   metaX += doc.getTextWidth(periodStr) + 16;
 
   if (data.projectName) {
-    const projStr = `Project: ${data.projectName}`;
+    const projStr = `Project: ${sanitizeText(data.projectName)}`;
     doc.text(projStr, metaX, metaY);
     metaX += doc.getTextWidth(projStr) + 16;
   }
@@ -611,7 +544,8 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
   y += 44;
 
   // Executive Summary
-  if (data.executive_summary) {
+  const summaryText = data.executive_summary || data.generated_report_markdown || '';
+  if (summaryText) {
     checkPageBreak(70);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -622,7 +556,8 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(51, 65, 85);
-    const execLines = doc.splitTextToSize(data.executive_summary, contentWidth - 20);
+    const cleanSummary = sanitizeText(summaryText.replace(/#{1,6}\s+/g, '').trim());
+    const execLines = doc.splitTextToSize(cleanSummary, contentWidth - 20);
     const boxHeight = execLines.length * 13 + 18;
     checkPageBreak(boxHeight);
 
@@ -637,7 +572,7 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
     y += boxHeight + 16;
   }
 
-  // Milestones
+  // Milestones Achieved
   if (data.milestones_achieved && data.milestones_achieved.length > 0) {
     checkPageBreak(50);
     doc.setFont('helvetica', 'bold');
@@ -648,7 +583,7 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
 
     data.milestones_achieved.forEach((m) => {
       const title = typeof m === 'string' ? m : (m.milestone || m.title || JSON.stringify(m));
-      const mLines = doc.splitTextToSize(`* ${title}`, contentWidth - 12);
+      const mLines = doc.splitTextToSize(`* ${sanitizeText(title)}`, contentWidth - 12);
       const itemHeight = mLines.length * 12 + 6;
 
       checkPageBreak(itemHeight);
@@ -657,6 +592,33 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
       doc.setFontSize(8.5);
       doc.setTextColor(30, 41, 59);
       doc.text(mLines, margin + 6, y + 8);
+      y += itemHeight;
+    });
+
+    y += 12;
+  }
+
+  // In Progress Items
+  if (data.in_progress_items && data.in_progress_items.length > 0) {
+    checkPageBreak(50);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(37, 99, 235);
+    doc.text(`IN PROGRESS DELIVERABLES (${data.in_progress_items.length})`, margin, y);
+    y += 12;
+
+    data.in_progress_items.forEach((p) => {
+      const task = typeof p === 'string' ? p : (p.deliverable || p.title || JSON.stringify(p));
+      const owner = typeof p === 'object' && p.owner ? ` (Owner: ${p.owner})` : '';
+      const pLines = doc.splitTextToSize(`- ${sanitizeText(task)}${sanitizeText(owner)}`, contentWidth - 12);
+      const itemHeight = pLines.length * 12 + 6;
+
+      checkPageBreak(itemHeight);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(pLines, margin + 6, y + 8);
       y += itemHeight;
     });
 
@@ -673,8 +635,9 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
     y += 12;
 
     data.risks_blockers.forEach((r) => {
-      const riskText = typeof r === 'string' ? r : (r.risk || JSON.stringify(r));
-      const rLines = doc.splitTextToSize(`! ${riskText}`, contentWidth - 12);
+      const riskText = typeof r === 'string' ? r : (r.risk || (r as any).title || JSON.stringify(r));
+      const mitigation = typeof r === 'object' && r.mitigation_plan ? ` | Mitigation: ${r.mitigation_plan}` : '';
+      const rLines = doc.splitTextToSize(`! ${sanitizeText(riskText)}${sanitizeText(mitigation)}`, contentWidth - 12);
       const itemHeight = rLines.length * 12 + 6;
 
       checkPageBreak(itemHeight);
@@ -683,6 +646,31 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
       doc.setFontSize(8.5);
       doc.setTextColor(159, 18, 57);
       doc.text(rLines, margin + 6, y + 8);
+      y += itemHeight;
+    });
+
+    y += 12;
+  }
+
+  // Next Month Goals
+  if (data.next_month_goals && data.next_month_goals.length > 0) {
+    checkPageBreak(50);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(16, 185, 129);
+    doc.text(`UPCOMING GOALS & TARGETS (${data.next_month_goals.length})`, margin, y);
+    y += 12;
+
+    data.next_month_goals.forEach((g) => {
+      const gLines = doc.splitTextToSize(`> ${sanitizeText(g)}`, contentWidth - 12);
+      const itemHeight = gLines.length * 12 + 6;
+
+      checkPageBreak(itemHeight);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(gLines, margin + 6, y + 8);
       y += itemHeight;
     });
 
@@ -707,3 +695,4 @@ export async function exportMonthlyReportDirectPDF(data: MonthlyReportPDFData): 
   const dateSuffix = data.month_year ? `_${data.month_year}` : '';
   doc.save(`monthly_report_${cleanName}${dateSuffix}.pdf`);
 }
+
