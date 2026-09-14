@@ -1,12 +1,34 @@
 import jsPDF from 'jspdf';
+import {
+  HexaviaAttendanceGroup,
+  HexaviaAttendee,
+  HexaviaPreviousActionReview,
+  HexaviaBusinessReview,
+  HexaviaReviewSubsection,
+  HexaviaPersonActionPoints,
+} from '../ai/aiService';
 
 export interface MeetingPDFData {
   title: string;
   meeting_date?: string;
+  meeting_time?: string;
   projectName?: string;
   file_name?: string;
   executive_summary?: string;
   participants?: string[];
+  in_attendance?: HexaviaAttendanceGroup[];
+  agenda?: string[];
+  meeting_objective?: string;
+  opening_and_context?: string;
+  review_of_previous_actions?: HexaviaPreviousActionReview[];
+  business_development_reviews?: HexaviaBusinessReview[];
+  action_points_by_person?: HexaviaPersonActionPoints[];
+  closing_remarks?: string;
+  minutes_prepared_by?: {
+    name: string;
+    role: string;
+    organization: string;
+  };
   action_items?: Array<{
     task?: string;
     item?: string;
@@ -85,12 +107,28 @@ function sanitizeFileName(name: string): string {
 function sanitizeText(str: string): string {
   if (!str) return '';
   return str
+    .replace(/₦/g, 'NGN ')
+    .replace(/[\u20A6]/g, 'NGN ')
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/\u2026/g, '...')
     .replace(/\u2022/g, '*')
     .replace(/[\u2700-\u27BF\uE000-\uF8FF\uD83C-\uDBFF\uDC00-\uDFFF]/g, '');
+}
+
+/**
+ * Extracts embedded Hexavia metadata if available
+ */
+function extractEmbeddedHexaviaMeta(markdown?: string): Record<string, any> {
+  if (!markdown) return {};
+  const match = markdown.match(/<!--\s*HEXAVIA_METADATA:\s*([\s\S]*?)\s*-->/);
+  if (!match || !match[1]) return {};
+  try {
+    return JSON.parse(match[1]);
+  } catch (e) {
+    return {};
+  }
 }
 
 /**
@@ -116,7 +154,7 @@ export async function exportMonthlyReportPDF(data: MonthlyReportPDFData): Promis
 }
 
 /**
- * High-Fidelity Vector jsPDF Generator for Meeting Summaries
+ * High-Fidelity Vector jsPDF Generator for Hexavia Meeting Minutes & Strategic Reports
  */
 export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promise<void> {
   const doc = new jsPDF({
@@ -129,138 +167,321 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
   const pageHeight = 792;
   const margin = 40;
   const contentWidth = pageWidth - margin * 2;
-  const bottomMargin = 45;
+  const bottomMargin = 50;
+
+  const embedded = extractEmbeddedHexaviaMeta(data.summary_markdown);
+
+  const docTitle = data.title || embedded.title || 'Hexavia- Organizational Diagnostic & Strategic Alignment Session';
+  const meetingDate = data.meeting_date || embedded.meeting_date || '';
+  const meetingTime = data.meeting_time || embedded.meeting_time || '';
+  const inAttendance: HexaviaAttendanceGroup[] = (data.in_attendance || embedded.in_attendance || []) as HexaviaAttendanceGroup[];
+  const agenda: string[] = (data.agenda || embedded.agenda || []) as string[];
+  const meetingObjective = data.meeting_objective || embedded.meeting_objective || data.executive_summary || '';
+  const openingAndContext = data.opening_and_context || embedded.opening_and_context || '';
+  const reviewPreviousActions: HexaviaPreviousActionReview[] = (data.review_of_previous_actions || embedded.review_of_previous_actions || []) as HexaviaPreviousActionReview[];
+  const businessDevelopmentReviews: HexaviaBusinessReview[] = (data.business_development_reviews || embedded.business_development_reviews || []) as HexaviaBusinessReview[];
+  const actionPointsByPerson: HexaviaPersonActionPoints[] = (data.action_points_by_person || embedded.action_points_by_person || []) as HexaviaPersonActionPoints[];
+  const closingRemarks = data.closing_remarks || embedded.closing_remarks || '';
+  const minutesPreparedBy = data.minutes_prepared_by || embedded.minutes_prepared_by || {
+    name: 'Funto Adeniyi',
+    role: 'Project Manager',
+    organization: 'Hexavia Consulting'
+  };
 
   let y = margin;
-  const docTitle = data.title || 'Executive Meeting Intelligence Report';
+
+  // Draws official Hexavia header box
+  const drawHexaviaHeader = (isCover = false) => {
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(2, 132, 199); // light blue border line
+    doc.setLineWidth(1);
+    doc.rect(margin, margin - 15, contentWidth, 54);
+
+    // Left Hexavia icon mark
+    doc.setDrawColor(37, 99, 235);
+    doc.setLineWidth(2.5);
+    doc.line(margin + 16, margin - 3, margin + 16, margin + 27);
+    doc.line(margin + 24, margin + 2, margin + 24, margin + 22);
+    doc.line(margin + 32, margin - 3, margin + 32, margin + 27);
+
+    // Hexavia Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(30, 41, 59);
+    doc.text('Hexavia!', margin + 42, margin + 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('L I M I T E D', margin + 44, margin + 24);
+
+    // Address & Contact line
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    const addr = '39A, Awudu Ekpegha Boulevard Street, Off Admiralty Road, Lekki Phase 1, Lagos | Hexavia.net | 08035202891 | @hexavia';
+    doc.text(addr, margin + 12, margin + 34);
+
+    // Cyan sub-strip
+    doc.setFillColor(239, 246, 255);
+    doc.rect(margin, margin + 39, contentWidth, 12, 'F');
+    doc.setDrawColor(2, 132, 199);
+    doc.line(margin, margin + 39, margin + contentWidth, margin + 39);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(2, 132, 199);
+    const brandRight = '(c) By Hexavia! www.hexavia.africa';
+    doc.text(brandRight, pageWidth - margin - 8 - doc.getTextWidth(brandRight), margin + 47.5);
+  };
 
   const checkPageBreak = (neededHeight: number) => {
     if (y + neededHeight > pageHeight - bottomMargin) {
       doc.addPage();
-      y = margin;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`${sanitizeText(docTitle).slice(0, 45)} - Hexavia Status Records`, margin, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(margin, y + 4, pageWidth - margin, y + 4);
-      y += 24;
+      drawHexaviaHeader(false);
+      y = margin + 62;
     }
   };
 
-  // 1. TOP BRANDING BANNER
-  doc.setFillColor(15, 23, 42); // slate-900
-  doc.roundedRect(margin, y, contentWidth, 28, 4, 4, 'F');
+  // 1. PAGE 1: Corporate Header
+  drawHexaviaHeader(true);
+  y = margin + 68;
 
+  // 2. DOCUMENT TITLE
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.text('HEXAVIA STATUS', margin + 12, y + 18);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(203, 213, 225);
-  const subtitle = 'EXECUTIVE MEETING INTELLIGENCE REPORT';
-  doc.text(subtitle, pageWidth - margin - 12 - doc.getTextWidth(subtitle), y + 18);
-
-  y += 42;
-
-  // 2. MEETING TITLE
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
+  doc.setFontSize(13);
   doc.setTextColor(15, 23, 42);
   const cleanTitle = sanitizeText(docTitle);
   const titleLines = doc.splitTextToSize(cleanTitle, contentWidth);
   doc.text(titleLines, margin, y);
-  y += titleLines.length * 20 + 8;
+  y += titleLines.length * 16 + 4;
 
-  // Metadata Card
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(margin, y, contentWidth, 34, 4, 4, 'FD');
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(71, 85, 105);
-
-  let metaX = margin + 12;
-  const metaY = y + 21;
-
-  const dateStr = `Date: ${data.meeting_date || 'N/A'}`;
-  doc.text(dateStr, metaX, metaY);
-  metaX += doc.getTextWidth(dateStr) + 16;
-
-  if (data.projectName) {
-    const projStr = `Project: ${sanitizeText(data.projectName)}`;
-    doc.text(projStr, metaX, metaY);
-    metaX += doc.getTextWidth(projStr) + 16;
+  // Date & Time Strip
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(30, 41, 59);
+  if (meetingDate) {
+    doc.text(`Date: ${sanitizeText(meetingDate)}`, margin, y);
+    y += 13;
+  }
+  if (meetingTime) {
+    doc.text(`Time: ${sanitizeText(meetingTime)}`, margin, y);
+    y += 15;
   }
 
-  if (data.file_name) {
-    const fileStr = `Source: ${sanitizeText(data.file_name)}`;
-    doc.text(fileStr, metaX, metaY);
-  }
+  // 3. IN ATTENDANCE
+  checkPageBreak(45);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('In Attendance', margin, y);
+  y += 14;
 
-  y += 44;
+  if (inAttendance.length > 0) {
+    inAttendance.forEach((grp) => {
+      checkPageBreak(28);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(sanitizeText(grp.organization), margin, y);
+      y += 12;
 
-  // 3. ATTENDEES
-  if (data.participants && data.participants.length > 0) {
-    checkPageBreak(30);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('ATTENDEES / PARTICIPANTS', margin, y);
-    y += 12;
-
+      grp.attendees.forEach((att) => {
+        checkPageBreak(12);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`* ${sanitizeText(att.name)} - ${sanitizeText(att.role)}`, margin + 8, y);
+        y += 11;
+      });
+      y += 3;
+    });
+  } else if (data.participants && data.participants.length > 0) {
+    checkPageBreak(25);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 41, 59);
-    const participantsText = sanitizeText(data.participants.join(', '));
-    const partLines = doc.splitTextToSize(participantsText, contentWidth);
-    doc.text(partLines, margin, y);
-    y += partLines.length * 11 + 14;
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Participants: ${sanitizeText(data.participants.join(', '))}`, margin + 8, y);
+    y += 14;
   }
+  y += 8;
 
-  // 4. EXECUTIVE SUMMARY
-  const summaryText = data.executive_summary || data.summary_markdown || '';
-  if (summaryText) {
-    checkPageBreak(70);
+  // 4. AGENDA
+  if (agenda.length > 0) {
+    checkPageBreak(50);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.setTextColor(37, 99, 235);
-    doc.text('EXECUTIVE SUMMARY', margin, y);
-    y += 10;
+    doc.setTextColor(15, 23, 42);
+    doc.text('AGENDA', margin, y);
+    y += 13;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(51, 65, 85);
-    const cleanSummary = sanitizeText(summaryText.replace(/#{1,6}\s+/g, '').trim());
-    const execLines = doc.splitTextToSize(cleanSummary, contentWidth - 20);
-    const boxHeight = execLines.length * 13 + 18;
-    checkPageBreak(boxHeight);
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(margin, y, contentWidth, boxHeight, 4, 4, 'FD');
-
-    // Left blue accent bar
-    doc.setFillColor(37, 99, 235);
-    doc.rect(margin, y, 3, boxHeight, 'F');
-
-    doc.text(execLines, margin + 12, y + 14);
-    y += boxHeight + 16;
+    agenda.forEach((item, idx) => {
+      const itemText = item.startsWith(`${idx + 1}.`) ? item : `${idx + 1}. ${item}`;
+      const cleanItem = sanitizeText(itemText);
+      const lines = doc.splitTextToSize(cleanItem, contentWidth - 10);
+      checkPageBreak(lines.length * 11 + 4);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(51, 65, 85);
+      doc.text(lines, margin + 6, y);
+      y += lines.length * 11 + 2;
+    });
+    y += 12;
   }
 
-  // 5. ACTION ITEMS TABLE
+  // 5. MEETING OBJECTIVE
+  if (meetingObjective) {
+    checkPageBreak(60);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('MEETING OBJECTIVE', margin, y);
+    y += 13;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const objLines = doc.splitTextToSize(sanitizeText(meetingObjective), contentWidth);
+    checkPageBreak(objLines.length * 12 + 6);
+    doc.text(objLines, margin, y);
+    y += objLines.length * 12 + 14;
+  }
+
+  // 6. OPENING AND CONTEXT SETTING
+  if (openingAndContext) {
+    checkPageBreak(50);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('OPENING AND CONTEXT SETTING', margin, y);
+    y += 13;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const openLines = doc.splitTextToSize(sanitizeText(openingAndContext), contentWidth);
+    checkPageBreak(openLines.length * 12 + 6);
+    doc.text(openLines, margin, y);
+    y += openLines.length * 12 + 14;
+  }
+
+  // 7. REVIEW OF PREVIOUS ACTION POINTS
+  if (reviewPreviousActions.length > 0) {
+    checkPageBreak(50);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('REVIEW OF PREVIOUS ACTION POINTS', margin, y);
+    y += 13;
+
+    reviewPreviousActions.forEach((group) => {
+      checkPageBreak(30);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(sanitizeText(group.track), margin, y);
+      y += 12;
+
+      group.items.forEach((item) => {
+        const itemLines = doc.splitTextToSize(`* ${sanitizeText(item)}`, contentWidth - 12);
+        checkPageBreak(itemLines.length * 11 + 2);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(itemLines, margin + 8, y);
+        y += itemLines.length * 11 + 2;
+      });
+      y += 6;
+    });
+    y += 8;
+  }
+
+  // 8. BUSINESS DEVELOPMENT & OPERATIONAL REVIEWS (Deep Dives)
+  if (businessDevelopmentReviews.length > 0) {
+    businessDevelopmentReviews.forEach((review) => {
+      checkPageBreak(60);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(2, 132, 199);
+      doc.text(sanitizeText(review.track.toUpperCase()), margin, y);
+      y += 14;
+
+      review.subsections.forEach((sub) => {
+        checkPageBreak(50);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(sanitizeText(sub.topic.toUpperCase()), margin, y);
+        y += 12;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(51, 65, 85);
+        const detailLines = doc.splitTextToSize(sanitizeText(sub.details), contentWidth);
+        checkPageBreak(detailLines.length * 12 + 6);
+        doc.text(detailLines, margin, y);
+        y += detailLines.length * 12 + 6;
+
+        if (sub.metrics_or_facts && sub.metrics_or_facts.length > 0) {
+          sub.metrics_or_facts.forEach((metric) => {
+            const mLine = `  > Key Detail: ${sanitizeText(metric)}`;
+            checkPageBreak(13);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.8);
+            doc.setTextColor(37, 99, 235);
+            doc.text(mLine, margin + 4, y);
+            y += 11;
+          });
+          y += 4;
+        }
+        y += 6;
+      });
+      y += 10;
+    });
+  }
+
+  // 9. ACTION POINTS AND NEXT STEPS (BY ASSIGNEE)
+  if (actionPointsByPerson.length > 0) {
+    checkPageBreak(60);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(5, 150, 105);
+    doc.text('ACTION POINTS AND NEXT STEPS (BY ASSIGNEE)', margin, y);
+    y += 14;
+
+    actionPointsByPerson.forEach((p) => {
+      checkPageBreak(35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(30, 41, 59);
+      const personHeader = `${sanitizeText(p.person)}${p.role ? ` - ${sanitizeText(p.role)}` : ''}${p.organization ? `, ${sanitizeText(p.organization)}` : ''}`;
+      doc.text(personHeader, margin, y);
+      y += 12;
+
+      p.actions.forEach((act) => {
+        const actLines = doc.splitTextToSize(`[ ] ${sanitizeText(act)}`, contentWidth - 14);
+        checkPageBreak(actLines.length * 11 + 3);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(actLines, margin + 8, y);
+        y += actLines.length * 11 + 2;
+      });
+      y += 8;
+    });
+    y += 10;
+  }
+
+  // 10. ACTION ITEMS MATRIX TABLE
   if (data.action_items && data.action_items.length > 0) {
     checkPageBreak(60);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(5, 150, 105);
-    doc.text(`ACTION ITEMS & COMMITMENTS (${data.action_items.length})`, margin, y);
+    doc.text(`DELIVERABLES MATRIX (${data.action_items.length})`, margin, y);
     y += 12;
 
-    // Header Row
+    // Table Header
     doc.setFillColor(241, 245, 249);
     doc.rect(margin, y, contentWidth, 18, 'F');
     doc.setFont('helvetica', 'bold');
@@ -311,153 +532,112 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
     y += 14;
   }
 
-  // 6. KEY DECISIONS
-  if (data.key_decisions && data.key_decisions.length > 0) {
-    checkPageBreak(50);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(37, 99, 235);
-    doc.text(`KEY DECISIONS AGREED UPON (${data.key_decisions.length})`, margin, y);
-    y += 12;
+  // 11. KEY DECISIONS & BLOCKERS
+  if ((data.key_decisions && data.key_decisions.length > 0) || (data.key_blockers && data.key_blockers.length > 0)) {
+    if (data.key_decisions && data.key_decisions.length > 0) {
+      checkPageBreak(50);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(37, 99, 235);
+      doc.text(`KEY DECISIONS (${data.key_decisions.length})`, margin, y);
+      y += 12;
 
-    data.key_decisions.forEach((dec) => {
-      const decText = typeof dec === 'string' ? dec : ((dec as any).decision || (dec as any).text || JSON.stringify(dec));
-      const cleanDec = sanitizeText(decText);
-      const decLines = doc.splitTextToSize(`* ${cleanDec}`, contentWidth - 12);
-      const itemHeight = decLines.length * 12 + 6;
+      data.key_decisions.forEach((dec) => {
+        const decText = typeof dec === 'string' ? dec : ((dec as any).decision || (dec as any).text || JSON.stringify(dec));
+        const cleanDec = sanitizeText(decText);
+        const decLines = doc.splitTextToSize(`* ${cleanDec}`, contentWidth - 12);
+        checkPageBreak(decLines.length * 11 + 4);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        doc.text(decLines, margin + 6, y + 8);
+        y += decLines.length * 11 + 4;
+      });
+      y += 10;
+    }
 
-      checkPageBreak(itemHeight);
+    if (data.key_blockers && data.key_blockers.length > 0) {
+      checkPageBreak(50);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(225, 29, 72);
+      doc.text(`BLOCKERS & RISKS (${data.key_blockers.length})`, margin, y);
+      y += 12;
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(30, 41, 59);
-      doc.text(decLines, margin + 6, y + 8);
-      y += itemHeight;
-    });
-
-    y += 12;
+      data.key_blockers.forEach((blk) => {
+        const blkText = typeof blk === 'string' ? blk : ((blk as any).blocker || (blk as any).risk || (blk as any).text || JSON.stringify(blk));
+        const cleanBlk = sanitizeText(blkText);
+        const blkLines = doc.splitTextToSize(`! ${cleanBlk}`, contentWidth - 12);
+        checkPageBreak(blkLines.length * 11 + 4);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(159, 18, 57);
+        doc.text(blkLines, margin + 6, y + 8);
+        y += blkLines.length * 11 + 4;
+      });
+      y += 10;
+    }
   }
 
-  // 7. KEY BLOCKERS
-  if (data.key_blockers && data.key_blockers.length > 0) {
-    checkPageBreak(50);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(225, 29, 72);
-    doc.text(`BLOCKERS & RISKS IDENTIFIED (${data.key_blockers.length})`, margin, y);
-    y += 12;
-
-    data.key_blockers.forEach((blk) => {
-      const blkText = typeof blk === 'string' ? blk : ((blk as any).blocker || (blk as any).risk || (blk as any).text || JSON.stringify(blk));
-      const cleanBlk = sanitizeText(blkText);
-      const blkLines = doc.splitTextToSize(`! ${cleanBlk}`, contentWidth - 12);
-      const itemHeight = blkLines.length * 12 + 6;
-
-      checkPageBreak(itemHeight);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(159, 18, 57);
-      doc.text(blkLines, margin + 6, y + 8);
-      y += itemHeight;
-    });
-
-    y += 12;
-  }
-
-  // 8. WHO SAID WHAT
-  if (data.who_said_what && data.who_said_what.length > 0) {
+  // 12. CLOSING
+  if (closingRemarks) {
     checkPageBreak(60);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
-    doc.text('SPEAKER BREAKDOWN ("WHO SAID WHAT")', margin, y);
-    y += 14;
-
-    data.who_said_what.forEach((item) => {
-      const speaker = item.speaker || item.participant || (item as any).name || 'Speaker';
-      const pointsList: string[] = [];
-
-      if (Array.isArray(item.main_points) && item.main_points.length > 0) {
-        pointsList.push(...item.main_points);
-      } else if (Array.isArray(item.points) && item.points.length > 0) {
-        pointsList.push(...item.points);
-      } else if (item.points) {
-        pointsList.push(String(item.points));
-      } else if (item.discussion) {
-        pointsList.push(item.discussion);
-      } else if (item.summary) {
-        pointsList.push(item.summary);
-      }
-
-      if (Array.isArray(item.commitments) && item.commitments.length > 0) {
-        pointsList.push(`Commitments: ${item.commitments.join('; ')}`);
-      }
-
-      const formattedDiscussion = pointsList.length > 0 ? pointsList.join('\n- ') : 'Contributed to meeting proceedings.';
-      const cleanDisc = sanitizeText(formattedDiscussion);
-      const discLines = doc.splitTextToSize(`- ${cleanDisc}`, contentWidth - 20);
-      const cardHeight = discLines.length * 11 + 26;
-
-      checkPageBreak(cardHeight);
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, y, contentWidth, cardHeight, 3, 3, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(37, 99, 235);
-      doc.text(sanitizeText(speaker), margin + 10, y + 13);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(51, 65, 85);
-      doc.text(discLines, margin + 10, y + 24);
-
-      y += cardHeight + 8;
-    });
-  }
-
-  // 9. FALLBACK: RAW NOTES (If no structured summary exists)
-  if (!summaryText && (!data.action_items || data.action_items.length === 0) && data.summary_markdown) {
-    checkPageBreak(60);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(37, 99, 235);
-    doc.text('MEETING NOTES & SYNTHESIS', margin, y);
-    y += 12;
+    doc.text('CLOSING', margin, y);
+    y += 13;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(51, 65, 85);
-    const cleanNotes = sanitizeText(data.summary_markdown);
-    const rawLines = doc.splitTextToSize(cleanNotes, contentWidth);
-    
-    for (const line of rawLines) {
-      checkPageBreak(14);
-      doc.text(line, margin, y);
-      y += 13;
-    }
-    y += 14;
+    const closeLines = doc.splitTextToSize(sanitizeText(closingRemarks), contentWidth);
+    checkPageBreak(closeLines.length * 12 + 6);
+    doc.text(closeLines, margin, y);
+    y += closeLines.length * 12 + 16;
   }
 
-  // 10. FOOTERS WITH PAGE NUMBERS
+  // 13. MINUTES PREPARED BY
+  if (minutesPreparedBy) {
+    checkPageBreak(55);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, y, contentWidth, 46, 3, 3, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Minutes Prepared By:', margin + 12, y + 16);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${sanitizeText(minutesPreparedBy.name)}, ${sanitizeText(minutesPreparedBy.role)}`, margin + 12, y + 30);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(sanitizeText(minutesPreparedBy.organization), margin + 12, y + 40);
+
+    y += 56;
+  }
+
+  // 14. RUNNING FOOTERS WITH PAGE NUMBERS & COPYRIGHT
   const totalPages = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
     doc.setDrawColor(226, 232, 240);
-    doc.line(margin, pageHeight - 28, pageWidth - margin, pageHeight - 28);
-    doc.text('Hexavia Status - Automated Executive PM Intelligence', margin, pageHeight - 16);
+    doc.line(margin, pageHeight - 26, pageWidth - margin, pageHeight - 26);
+    doc.text('(c) By Hexavia! www.hexavia.africa', margin, pageHeight - 14);
     const pageStr = `Page ${i} of ${totalPages}`;
-    doc.text(pageStr, pageWidth - margin - doc.getTextWidth(pageStr), pageHeight - 16);
+    doc.text(pageStr, pageWidth - margin - doc.getTextWidth(pageStr), pageHeight - 14);
   }
 
   const cleanName = sanitizeFileName(docTitle);
-  const dateSuffix = data.meeting_date ? `_${data.meeting_date}` : '';
+  const dateSuffix = meetingDate ? `_${sanitizeFileName(meetingDate)}` : '';
   doc.save(`meeting_summary_${cleanName}${dateSuffix}.pdf`);
 }
 

@@ -32,7 +32,11 @@ import {
   Video,
   Zap,
   Radio,
-  Plus
+  Plus,
+  Building2,
+  Target,
+  Award,
+  CheckSquare
 } from 'lucide-react';
 import SampleTranscriptModal from '@/components/SampleTranscriptModal';
 import Link from 'next/link';
@@ -42,6 +46,7 @@ import InviteBotModal from '@/components/bot/InviteBotModal';
 import LiveBotMonitor from '@/components/bot/LiveBotMonitor';
 import BotSessionsDrawer from '@/components/bot/BotSessionsDrawer';
 import ConnectProjectModal from '@/components/bot/ConnectProjectModal';
+import { extractHexaviaMetadata } from '@/lib/ai/aiService';
 import { 
   BotSession, 
   MeetingPlatform, 
@@ -78,7 +83,7 @@ function MeetingSummaryContent() {
   const [loading, setLoading] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'who_said_what' | 'action_items' | 'decisions' | 'markdown'>('overview');
+  const [activeTab, setActiveTab] = useState<'hexavia_report' | 'overview' | 'who_said_what' | 'action_items' | 'decisions' | 'markdown'>('hexavia_report');
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -94,6 +99,7 @@ function MeetingSummaryContent() {
         setMeetingTitle(existing.title);
         setMeetingDate(existing.meeting_date);
         setSelectedProjectId(existing.project_id || '');
+        const meta = extractHexaviaMetadata(existing.summary_markdown) || {};
         setSummaryResult({
           title: existing.title,
           executive_summary: existing.executive_summary,
@@ -103,6 +109,17 @@ function MeetingSummaryContent() {
           key_blockers: existing.key_blockers || [],
           summary_markdown: existing.summary_markdown,
           participants: existing.participants || [],
+          meeting_date: existing.meeting_date || meta.meeting_date,
+          meeting_time: meta.meeting_time,
+          in_attendance: meta.in_attendance,
+          agenda: meta.agenda,
+          meeting_objective: meta.meeting_objective,
+          opening_and_context: meta.opening_and_context,
+          review_of_previous_actions: meta.review_of_previous_actions,
+          business_development_reviews: meta.business_development_reviews,
+          action_points_by_person: meta.action_points_by_person,
+          closing_remarks: meta.closing_remarks,
+          minutes_prepared_by: meta.minutes_prepared_by,
         });
       }
     }
@@ -351,11 +368,21 @@ function MeetingSummaryContent() {
       const proj = projects.find((p) => p.id === selectedProjectId);
       await exportMeetingSummaryPDF({
         title: meetingTitle || summaryResult.title || 'Meeting Summary',
-        meeting_date: meetingDate,
+        meeting_date: meetingDate || summaryResult.meeting_date,
+        meeting_time: summaryResult.meeting_time,
         projectName: proj?.name,
         file_name: fileName,
         executive_summary: summaryResult.executive_summary,
         participants: summaryResult.participants,
+        in_attendance: summaryResult.in_attendance,
+        agenda: summaryResult.agenda,
+        meeting_objective: summaryResult.meeting_objective,
+        opening_and_context: summaryResult.opening_and_context,
+        review_of_previous_actions: summaryResult.review_of_previous_actions,
+        business_development_reviews: summaryResult.business_development_reviews,
+        action_points_by_person: summaryResult.action_points_by_person,
+        closing_remarks: summaryResult.closing_remarks,
+        minutes_prepared_by: summaryResult.minutes_prepared_by,
         action_items: summaryResult.action_items,
         key_decisions: summaryResult.key_decisions,
         key_blockers: summaryResult.key_blockers,
@@ -923,6 +950,21 @@ function MeetingSummaryContent() {
                 {/* Tab Navigation */}
                 <div className="flex items-center gap-1 overflow-x-auto border-t border-slate-200 pt-2">
                   <button
+                    onClick={() => setActiveTab('hexavia_report')}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${
+                      activeTab === 'hexavia_report'
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+                    <span>Hexavia Diagnostic Report</span>
+                    <span className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">
+                      Official
+                    </span>
+                  </button>
+
+                  <button
                     onClick={() => setActiveTab('overview')}
                     className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${
                       activeTab === 'overview'
@@ -986,6 +1028,245 @@ function MeetingSummaryContent() {
 
               {/* Tab Contents */}
               <div className="p-6 space-y-4 max-h-[680px] overflow-y-auto">
+                {/* TAB 0: HEXAVIA OFFICIAL DIAGNOSTIC MINUTES */}
+                {activeTab === 'hexavia_report' && (
+                  <div className="space-y-6">
+                    {/* Official Hexavia Brand Bar */}
+                    <div className="rounded-xl border border-sky-300 bg-linear-to-r from-sky-50 via-white to-blue-50 p-4 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-100 pb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 h-8 px-2 py-1 rounded bg-white border border-slate-200">
+                            <div className="w-1.5 h-6 bg-blue-600 rounded-xs" />
+                            <div className="w-1.5 h-4 bg-blue-500 rounded-xs" />
+                            <div className="w-1.5 h-6 bg-blue-600 rounded-xs" />
+                          </div>
+                          <div>
+                            <span className="text-base font-extrabold text-slate-900 tracking-tight">
+                              Hexavia! LIMITED
+                            </span>
+                            <p className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">
+                              Organizational Diagnostic & Strategic Alignment Minutes
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right text-[11px] text-slate-600">
+                          <p>39A, Awudu Ekpegha Boulevard Street, Lekki Phase 1, Lagos</p>
+                          <p className="text-[10px] text-blue-600 font-semibold mt-0.5">© By Hexavia! www.hexavia.africa</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-xs">
+                        <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Date</span>
+                          <span className="font-semibold text-slate-800">{summaryResult.meeting_date || meetingDate}</span>
+                        </div>
+                        <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Time</span>
+                          <span className="font-semibold text-slate-800">{summaryResult.meeting_time || '4:00 pm – 4:30 pm'}</span>
+                        </div>
+                        <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Prepared By</span>
+                          <span className="font-semibold text-slate-800">{summaryResult.minutes_prepared_by?.name || 'Funto Adeniyi (PM)'}</span>
+                        </div>
+                        <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Status</span>
+                          <span className="font-semibold text-emerald-700">Validated Minutes</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* In Attendance */}
+                    {summaryResult.in_attendance && summaryResult.in_attendance.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 text-blue-600" />
+                          <span>In Attendance</span>
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {summaryResult.in_attendance.map((grp: any, gIdx: number) => (
+                            <div key={gIdx} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-1.5">
+                              <span className="text-xs font-bold text-blue-900 block border-b border-slate-200 pb-1">
+                                {grp.organization}
+                              </span>
+                              <ul className="space-y-1 text-xs text-slate-700">
+                                {grp.attendees.map((att: any, aIdx: number) => (
+                                  <li key={aIdx} className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                    <span className="font-semibold text-slate-900">{att.name}</span>
+                                    <span className="text-slate-500">– {att.role}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Numbered Agenda */}
+                    {summaryResult.agenda && summaryResult.agenda.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+                          <span>Session Agenda ({summaryResult.agenda.length} Topics)</span>
+                        </h4>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-slate-800">
+                            {summaryResult.agenda.map((item: string, idx: number) => (
+                              <div key={idx} className="flex items-start gap-2 py-0.5">
+                                <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded bg-blue-50 font-mono text-[10px] font-bold text-blue-700 border border-blue-100">
+                                  {idx + 1}
+                                </span>
+                                <span className="leading-snug">{item.replace(/^\d+\.\s*/, '')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Meeting Objective */}
+                    {summaryResult.meeting_objective && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <Target className="h-3.5 w-3.5 text-blue-600" />
+                          <span>Meeting Objective</span>
+                        </h4>
+                        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-line">
+                          {summaryResult.meeting_objective}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Opening and Context */}
+                    {summaryResult.opening_and_context && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Opening & Context Setting
+                        </h4>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                          {summaryResult.opening_and_context}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Review of Previous Action Points */}
+                    {summaryResult.review_of_previous_actions && summaryResult.review_of_previous_actions.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Review of Previous Action Points
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {summaryResult.review_of_previous_actions.map((grp: any, idx: number) => (
+                            <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2">
+                              <span className="text-xs font-bold text-slate-900 block border-b border-slate-100 pb-1">
+                                {grp.track}
+                              </span>
+                              <ul className="space-y-1 text-xs text-slate-700">
+                                {grp.items.map((it: string, iIdx: number) => (
+                                  <li key={iIdx} className="flex items-start gap-1.5">
+                                    <span className="text-amber-500 font-bold">•</span>
+                                    <span>{it}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Workstream Deep Dives */}
+                    {summaryResult.business_development_reviews && summaryResult.business_development_reviews.length > 0 && (
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Workstream Diagnostic & Business Development Reviews
+                        </h4>
+                        {summaryResult.business_development_reviews.map((rev: any, rIdx: number) => (
+                          <div key={rIdx} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+                            <div className="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+                              <h5 className="text-xs font-extrabold uppercase text-blue-900 tracking-wide">
+                                {rev.track}
+                              </h5>
+                              <span className="text-[10px] font-bold text-slate-500">
+                                {rev.subsections?.length || 0} Subsections
+                              </span>
+                            </div>
+                            <div className="p-4 divide-y divide-slate-100 space-y-3">
+                              {rev.subsections?.map((sub: any, sIdx: number) => (
+                                <div key={sIdx} className={sIdx > 0 ? 'pt-3 space-y-1.5' : 'space-y-1.5'}>
+                                  <h6 className="text-xs font-bold text-slate-900">{sub.topic}</h6>
+                                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{sub.details}</p>
+                                  {sub.metrics_or_facts && sub.metrics_or_facts.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 pt-1">
+                                      {sub.metrics_or_facts.map((m: string, mIdx: number) => (
+                                        <span key={mIdx} className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                                          <span>🏷️</span>
+                                          <span>{m}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Action Points by Person */}
+                    {summaryResult.action_points_by_person && summaryResult.action_points_by_person.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <CheckSquare className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>Action Points & Next Steps (By Stakeholder)</span>
+                        </h4>
+                        <div className="space-y-3">
+                          {summaryResult.action_points_by_person.map((p: any, idx: number) => (
+                            <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-2">
+                              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px]">
+                                    {p.person.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-900">{p.person}</span>
+                                  <span className="text-[10px] text-slate-500">– {p.role}{p.organization ? `, ${p.organization}` : ''}</span>
+                                </div>
+                                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                                  {p.actions?.length || 0} Action{p.actions?.length > 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              <ul className="space-y-1 text-xs text-slate-700 pl-1">
+                                {p.actions?.map((act: string, aIdx: number) => (
+                                  <li key={aIdx} className="flex items-start gap-2">
+                                    <CheckSquare className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                                    <span className="leading-snug">{act}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Closing & Signoff */}
+                    {summaryResult.closing_remarks && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block">Meeting Closing</span>
+                        <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{summaryResult.closing_remarks}</p>
+                        {summaryResult.minutes_prepared_by && (
+                          <div className="pt-2 border-t border-slate-200 text-xs text-slate-500">
+                            <span className="font-bold text-slate-800">Minutes Prepared By: </span>
+                            <span>{summaryResult.minutes_prepared_by.name}, {summaryResult.minutes_prepared_by.role} ({summaryResult.minutes_prepared_by.organization})</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* TAB 1: EXECUTIVE OVERVIEW */}
                 {activeTab === 'overview' && (
                   <div className="space-y-6">
@@ -1345,11 +1626,21 @@ function MeetingSummaryContent() {
           type="meeting"
           meetingData={{
             title: meetingTitle || summaryResult.title || 'Meeting Summary',
-            meeting_date: meetingDate,
+            meeting_date: meetingDate || summaryResult.meeting_date,
+            meeting_time: summaryResult.meeting_time,
             projectName: projects.find((p) => p.id === selectedProjectId)?.name,
             file_name: fileName,
             executive_summary: summaryResult.executive_summary,
             participants: summaryResult.participants,
+            in_attendance: summaryResult.in_attendance,
+            agenda: summaryResult.agenda,
+            meeting_objective: summaryResult.meeting_objective,
+            opening_and_context: summaryResult.opening_and_context,
+            review_of_previous_actions: summaryResult.review_of_previous_actions,
+            business_development_reviews: summaryResult.business_development_reviews,
+            action_points_by_person: summaryResult.action_points_by_person,
+            closing_remarks: summaryResult.closing_remarks,
+            minutes_prepared_by: summaryResult.minutes_prepared_by,
             action_items: summaryResult.action_items,
             key_decisions: summaryResult.key_decisions,
             key_blockers: summaryResult.key_blockers,

@@ -11,6 +11,30 @@ interface SampleTranscriptModalProps {
 
 export const SAMPLE_TRANSCRIPTS = [
   {
+    id: 'hexavia-strategic-diagnostic',
+    title: 'Hexavia - Sway Liners / Mpenziwe Bed Outfit: Strategic Alignment Session',
+    description: '14-point strategic alignment & diagnostic session covering CAC registration (₦45k), staff recruitment, bedding partnerships, and estate marketing.',
+    transcript: `00:00:05 Ms. Funto Adeniyi (Hexavia Consulting): Good afternoon Mrs. Stella and Mr. Ikenna. Welcome to today's Organizational Diagnostic and Strategic Alignment Session for Sway Liners and Mpenziwe Bed Outfits. Apologies for the slight network delay as everyone connected. Let us proceed with reviewing the previous action points.
+00:00:35 Mrs. Stella Obimba (Mpenziwe Bed Outfits): Good afternoon Ms. Funto. On my end, for the CAC registration, I have submitted my details to the registration consultant. There was a brief delay earlier because I misplaced my printed ID document, but that is resolved now.
+00:01:05 Ms. Funto Adeniyi (Hexavia Consulting): Thank you Mrs. Stella. As clarified with Mr. Eizu, the consultant quoted ₦45,000 per business, which brings the total cost to ₦90,000 for both Swayliners and Mpenziwe under our negotiated joint rate. Mr. Ikenna, what is the status of your documentation?
+00:01:25 Mr. Ikenna Uwaoma (Sway Liners): Good afternoon everyone. I am currently retrieving the final outstanding documents on my side. I will submit everything to the consultant before our next meeting so we can lock in the ₦45,000 joint filing rate.
+00:01:45 Ms. Funto Adeniyi (Hexavia Consulting): Excellent. Mrs. Stella, regarding the proposed Mpenziwe logo and interior decoration training?
+00:02:02 Mrs. Stella Obimba (Mpenziwe Bed Outfits): I have an alternative logo design ready and will send it to you today to compare with the mock-up in the business proposal. On the training, I have progressed to Module 5. It is largely reading-based with module assessments.
+00:02:22 Ms. Funto Adeniyi (Hexavia Consulting): Understood. Remember to complement the course reading with practical exposure—watch Nigerian interior decoration transformation videos on YouTube and study local trends. Also, from my research into associations, LinkedIn was mostly inactive locally, but Instagram has an active network of Nigerian interior decorators. I recommend connecting with 1 or 2 established decorators.
+00:02:50 Mrs. Stella Obimba (Mpenziwe Bed Outfits): I will definitely do that. Also, I regained access to my LinkedIn account from another phone, so I will share my profile name in our group for review. In terms of bedding outreach, I visited approximately six outlets this week, including four mattress shops. One mattress outlet owner on Oka Road showed strong interest because his existing bedding supplier is unreliable. I left my business card and will follow up to obtain his mattress grade prices.
+00:03:30 Ms. Funto Adeniyi (Hexavia Consulting): That is very encouraging progress on Oka Road. That creates a mutual referral sales channel. What about flyer distribution?
+00:03:45 Mrs. Stella Obimba (Mpenziwe Bed Outfits): I retained fewer than 20 flyers so I can distribute them strategically during physical store visits. I gave 3 flyers to the Oka Road shop for counter display.
+00:04:05 Ms. Funto Adeniyi (Hexavia Consulting): Perfect strategy. Mr. Ikenna, let us review Swayliners: banner placement, customer acquisition, and laundry recruitment.
+00:04:22 Mr. Ikenna Uwaoma (Sway Liners): Despite conference travel last week, we made solid progress on the banner placement at the commercial building in the estate. Gigi is assisting with getting the woman's approval. We have printed 2 banners and 2 sticker posters—one poster is already placed at the front compound.
+00:04:50 Mr. Ikenna Uwaoma (Sway Liners): On recruitment, we had a major breakthrough. I interviewed a prospective laundry operator who is reasonably experienced. He agreed to our proposed salary. However, considering his commute distance and transport costs, requiring 6 days weekly was impractical. We structured a 4-day working schedule, with Friday and Saturday attracting supplemental daily pay when workload surges. He resumes next week subject to signed guarantor documentation.
+00:05:35 Ms. Funto Adeniyi (Hexavia Consulting): Outstanding news on the hire! Accountability is vital, so ensure the guarantor documentation is completed before resumption. How is customer acquisition in the estate?
+00:05:52 Mr. Ikenna Uwaoma (Sway Liners): We gained a new customer via the estate app code system, and another customer returned with a large order through compound recommendation. Regarding flyer distribution, estate security is strict. We agreed that once the new staff arrives, we will introduce him to estate security and have him accompany an authorized person.
+00:06:20 Mr. Ikenna Uwaoma (Sway Liners): One challenge: our written customer testimonial on Instagram was automatically deleted after posting. We also have a video testimonial from a satisfied customer.
+00:06:40 Ms. Funto Adeniyi (Hexavia Consulting): I will investigate the technical trigger behind Instagram deleting the post, whether it is caption moderation or file format. Let us continue with fresh varied content. To wrap up: I will follow up with Mr. Eizu on CAC and review the Mpenziwe logo. Mrs. Stella will follow up with the Oka Road prospect and continue Module 5. Mr. Ikenna will finalize CAC documents and complete laundry staff onboarding with guarantors.
+00:07:15 Mrs. Stella Obimba (Mpenziwe Bed Outfits): Agreed, thank you Ms. Funto.
+00:07:22 Mr. Ikenna Uwaoma (Sway Liners): Agreed. Meeting adjourned.`,
+  },
+  {
     id: 'sprint-sync',
     title: 'Sprint 24 Engineering Sync & Blockers',
     description: '4-person Zoom meeting discussing frontend deliverables, backend database migrations, and QA timeline.',
