@@ -171,7 +171,7 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
 
   const embedded = extractEmbeddedHexaviaMeta(data.summary_markdown);
 
-  const docTitle = data.title || embedded.title || 'Hexavia- Organizational Diagnostic & Strategic Alignment Session';
+  const docTitle = data.title || embedded.title || 'Executive Meeting & Strategic Alignment Session';
   const meetingDate = data.meeting_date || embedded.meeting_date || '';
   const meetingTime = data.meeting_time || embedded.meeting_time || '';
   const inAttendance: HexaviaAttendanceGroup[] = (data.in_attendance || embedded.in_attendance || []) as HexaviaAttendanceGroup[];
@@ -183,9 +183,9 @@ export async function exportMeetingSummaryDirectPDF(data: MeetingPDFData): Promi
   const actionPointsByPerson: HexaviaPersonActionPoints[] = (data.action_points_by_person || embedded.action_points_by_person || []) as HexaviaPersonActionPoints[];
   const closingRemarks = data.closing_remarks || embedded.closing_remarks || '';
   const minutesPreparedBy = data.minutes_prepared_by || embedded.minutes_prepared_by || {
-    name: 'Funto Adeniyi',
-    role: 'Project Manager',
-    organization: 'Hexavia Consulting'
+    name: data.participants?.[0] || inAttendance?.[0]?.attendees?.[0]?.name || 'Project Lead',
+    role: 'Project Manager / Facilitator',
+    organization: inAttendance?.[0]?.organization || 'Project Team'
   };
 
   let y = margin;

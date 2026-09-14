@@ -1062,11 +1062,11 @@ function MeetingSummaryContent() {
                         </div>
                         <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
                           <span className="text-[10px] text-slate-400 font-bold uppercase block">Time</span>
-                          <span className="font-semibold text-slate-800">{summaryResult.meeting_time || '4:00 pm – 4:30 pm'}</span>
+                          <span className="font-semibold text-slate-800">{summaryResult.meeting_time || 'Working Session'}</span>
                         </div>
                         <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
                           <span className="text-[10px] text-slate-400 font-bold uppercase block">Prepared By</span>
-                          <span className="font-semibold text-slate-800">{summaryResult.minutes_prepared_by?.name || 'Funto Adeniyi (PM)'}</span>
+                          <span className="font-semibold text-slate-800">{summaryResult.minutes_prepared_by?.name || summaryResult.participants?.[0] || 'Project Lead'}</span>
                         </div>
                         <div className="bg-white/80 rounded-lg p-2 border border-slate-200">
                           <span className="text-[10px] text-slate-400 font-bold uppercase block">Status</span>

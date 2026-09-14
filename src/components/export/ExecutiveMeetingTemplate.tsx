@@ -48,7 +48,7 @@ export const ExecutiveMeetingTemplate: React.FC<Props> = ({
 }) => {
   const embedded = extractEmbeddedHexaviaMeta(data.summary_markdown);
 
-  const docTitle = data.title || embedded.title || 'Hexavia- Organizational Diagnostic & Strategic Alignment Session';
+  const docTitle = data.title || embedded.title || 'Executive Meeting & Strategic Alignment Session';
   const meetingDate = data.meeting_date || embedded.meeting_date || '';
   const meetingTime = data.meeting_time || embedded.meeting_time || '';
   const inAttendance: HexaviaAttendanceGroup[] = data.in_attendance || embedded.in_attendance || [];
@@ -60,9 +60,9 @@ export const ExecutiveMeetingTemplate: React.FC<Props> = ({
   const actionPointsByPerson: HexaviaPersonActionPoints[] = data.action_points_by_person || embedded.action_points_by_person || [];
   const closingRemarks = data.closing_remarks || embedded.closing_remarks || '';
   const minutesPreparedBy = data.minutes_prepared_by || embedded.minutes_prepared_by || {
-    name: 'Funto Adeniyi',
-    role: 'Project Manager',
-    organization: 'Hexavia Consulting'
+    name: data.participants?.[0] || inAttendance?.[0]?.attendees?.[0]?.name || 'Project Lead',
+    role: 'Project Manager / Facilitator',
+    organization: inAttendance?.[0]?.organization || 'Project Team'
   };
 
   const actionItems = data.action_items || [];
@@ -183,7 +183,7 @@ export const ExecutiveMeetingTemplate: React.FC<Props> = ({
               <FolderGit2 className="w-3 h-3 text-amber-300" /> Project / Track
             </div>
             <div className="font-semibold text-white truncate">
-              {data.projectName || 'Sway Liners / Mpenziwe'}
+              {data.projectName || (data.title && !data.title.includes('Executive Meeting') ? data.title.split(':')[0] : 'Project Workstream')}
             </div>
           </div>
 
@@ -192,7 +192,7 @@ export const ExecutiveMeetingTemplate: React.FC<Props> = ({
               <User className="w-3 h-3 text-purple-300" /> Minutes Prepared By
             </div>
             <div className="font-semibold text-white truncate">
-              {minutesPreparedBy?.name || 'Funto Adeniyi'}
+              {minutesPreparedBy?.name || data.participants?.[0] || 'Project Lead'}
             </div>
           </div>
         </div>
