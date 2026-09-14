@@ -1076,7 +1076,7 @@ function MeetingSummaryContent() {
                     </div>
 
                     {/* In Attendance */}
-                    {summaryResult.in_attendance && summaryResult.in_attendance.length > 0 && (
+                    {summaryResult.in_attendance && summaryResult.in_attendance.length > 0 ? (
                       <div className="space-y-2">
                         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 text-blue-600" />
@@ -1101,7 +1101,27 @@ function MeetingSummaryContent() {
                           ))}
                         </div>
                       </div>
-                    )}
+                    ) : summaryResult.participants && summaryResult.participants.length > 0 ? (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 text-blue-600" />
+                          <span>In Attendance</span>
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {summaryResult.participants.map((person: string, idx: number) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800"
+                            >
+                              <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold">
+                                {person.charAt(0).toUpperCase()}
+                              </span>
+                              {person}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {/* Numbered Agenda */}
                     {summaryResult.agenda && summaryResult.agenda.length > 0 && (
