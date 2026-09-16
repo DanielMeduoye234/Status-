@@ -26,6 +26,7 @@ import {
   Download
 } from 'lucide-react';
 import { exportMeetingSummaryPDF, exportMonthlyReportPDF } from '@/lib/export/pdfExport';
+import { useRecordedMeetingId } from '@/components/JustRecordedBanner';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -46,6 +47,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState<'meetings' | 'reports' | 'actions' | 'decisions'>('meetings');
   const [searchQuery, setSearchQuery] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const { recordedId } = useRecordedMeetingId();
 
   // Find the target project
   const project = useMemo(() => {
@@ -468,7 +470,9 @@ export default function ProjectDetailPage() {
                 {filteredMeetings.map((meeting) => (
                   <div
                     key={meeting.id}
-                    className="group rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm hover:border-blue-300 hover:shadow-md transition-all space-y-4"
+                    className={`group rounded-2xl border bg-white p-5 sm:p-6 shadow-sm hover:border-blue-300 hover:shadow-md transition-all space-y-4 ${
+                      recordedId === meeting.id ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-slate-200'
+                    }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div className="space-y-1.5 flex-1">
@@ -476,6 +480,11 @@ export default function ProjectDetailPage() {
                           <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
                             {meeting.title}
                           </h3>
+                          {recordedId === meeting.id && (
+                            <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold">
+                              Just recorded
+                            </span>
+                          )}
                           <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600 flex items-center gap-1 border border-slate-200">
                             <Calendar className="h-3 w-3 text-slate-400" />
                             {meeting.meeting_date}

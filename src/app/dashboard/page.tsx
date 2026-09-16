@@ -21,11 +21,19 @@ import {
 } from 'lucide-react';
 import ProjectModal from '@/components/ProjectModal';
 import ConnectProjectModal from '@/components/bot/ConnectProjectModal';
+import JustRecordedBanner, { useRecordedMeetingId } from '@/components/JustRecordedBanner';
 
 export default function DashboardPage() {
   const { user, projects, activeProject, meetingSummaries, unassignedMeetings, monthlyReports, updateMeetingSummary } = useAuth();
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [connectingMeeting, setConnectingMeeting] = useState<any | null>(null);
+  const { recordedId, dismiss } = useRecordedMeetingId();
+  const recordedMeeting = recordedId
+    ? meetingSummaries.find((m) => m.id === recordedId)
+    : undefined;
+  const recordedProject = recordedMeeting?.project_id
+    ? projects.find((p) => p.id === recordedMeeting.project_id)
+    : undefined;
 
   // Calculate action item counts
   const totalActionItems = meetingSummaries.reduce((acc, curr) => {
@@ -96,6 +104,14 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {recordedMeeting && (
+          <JustRecordedBanner
+            meeting={recordedMeeting}
+            project={recordedProject}
+            onDismiss={dismiss}
+          />
+        )}
 
         {/* UNASSIGNED MEETINGS INBOX BANNER */}
         {unassignedMeetings.length > 0 && (
@@ -307,7 +323,11 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={item.id}
-                      className="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between"
+                      className={`rounded-xl border p-3.5 hover:border-slate-300 transition-colors flex items-center justify-between ${
+                        recordedId === item.id
+                          ? 'border-emerald-300 bg-emerald-50/70'
+                          : 'border-slate-100 bg-slate-50/70'
+                      }`}
                     >
                       <div className="truncate pr-3">
                         <div className="flex items-center gap-2 truncate">

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getRecallBot, getRecallBotTranscript } from '@/lib/bot/recallService';
+import { getRecallBot, waitForRecallBotTranscript, recallBotFileName } from '@/lib/bot/recallService';
 import { generateMeetingSummary } from '@/lib/ai/aiService';
+import { isValidUUID } from '@/lib/utils/uuid';
 
 function getSupabaseBackendClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,6 +13,41 @@ function getSupabaseBackendClient() {
   return createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   });
+}
+
+function extractBotId(eventData: any): string | undefined {
+  return (
+    eventData?.data?.bot?.id ||
+    eventData?.data?.bot_id ||
+    eventData?.bot?.id ||
+    eventData?.data?.id ||
+    eventData?.bot_id
+  );
+}
+
+function extractStatusCode(eventData: any): string {
+  return String(
+    eventData?.data?.data?.code ||
+    eventData?.data?.status?.code ||
+    eventData?.data?.code ||
+    ''
+  ).toLowerCase();
+}
+
+function shouldSummarizeEvent(eventType: string, statusCode: string): boolean {
+  const type = (eventType || '').toLowerCase();
+  if (
+    type === 'transcript.done' ||
+    type === 'bot.done' ||
+    type === 'bot.transcription_completed'
+  ) {
+    return true;
+  }
+  if (type === 'bot.status_change' && (statusCode === 'done' || statusCode === 'bot.done')) {
+    return true;
+  }
+  // call_ended is too early — media/transcript are not ready yet
+  return false;
 }
 
 export async function POST(req: NextRequest) {
@@ -26,18 +62,13 @@ export async function POST(req: NextRequest) {
     }
 
     const eventType = eventData.event || eventData.type || 'unknown';
-    const botId = eventData.data?.bot_id || eventData.data?.id;
+    const botId = extractBotId(eventData);
+    const statusCode = extractStatusCode(eventData);
 
-    console.log(`[Recall.ai Webhook] Received event: ${eventType} for bot: ${botId}`);
+    console.log(`[Recall.ai Webhook] Received event: ${eventType} for bot: ${botId} (code: ${statusCode || 'n/a'})`);
 
-    const code = eventData.data?.status?.code?.toLowerCase();
-    const isMeetingEnded = 
-      eventType === 'bot.transcription_completed' ||
-      (eventType === 'bot.status_change' && (code === 'done' || code === 'call_ended'));
-
-    // If meeting ended for everyone, trigger autonomous background summarization
-    if (isMeetingEnded && botId) {
-      console.log(`[Recall.ai Webhook] Meeting concluded for bot: ${botId}. Triggering AI summarization pipeline...`);
+    if (shouldSummarizeEvent(eventType, statusCode) && botId) {
+      console.log(`[Recall.ai Webhook] Meeting artifacts ready for bot: ${botId}. Triggering AI summarization pipeline...`);
 
       // Run background processing asynchronously so webhook responds within 5s SLA
       (async () => {
@@ -46,30 +77,45 @@ export async function POST(req: NextRequest) {
           const botData = await getRecallBot(botId);
           const metadata = botData.metadata || {};
           const userId = metadata.userId;
-          const preSelectedProjectId = metadata.projectId || null;
+          const preSelectedProjectId = isValidUUID(metadata.projectId) ? metadata.projectId : null;
           const sessionTitle = metadata.title || 'Recorded Meeting Summary';
-
-          // Check if transcript already processed
-          const fileName = `recall-bot-${botId.slice(0, 12)}.txt`;
+          const fileName = recallBotFileName(botId);
 
           if (supabase && userId) {
-            const { data: existing } = await supabase
+            const { data: existingByFile } = await supabase
               .from('meeting_summaries')
               .select('id')
+              .eq('user_id', userId)
               .eq('file_name', fileName)
               .maybeSingle();
 
-            if (existing) {
+            if (existingByFile) {
               console.log(`[Recall.ai Webhook] Meeting ${botId} already processed.`);
               return;
             }
           }
 
-          // Fetch transcript
-          const transcriptData = await getRecallBotTranscript(botId);
+          const transcriptData = await waitForRecallBotTranscript(botId, {
+            attempts: 5,
+            delayMs: 3000,
+          });
           if (!transcriptData.fullTranscript || transcriptData.fullTranscript.trim().length < 20) {
-            console.log(`[Recall.ai Webhook] No transcript content captured for bot ${botId}`);
+            console.log(`[Recall.ai Webhook] No transcript content captured for bot ${botId} after retries`);
             return;
+          }
+
+          if (supabase && userId) {
+            const { data: existingByTranscript } = await supabase
+              .from('meeting_summaries')
+              .select('id')
+              .eq('user_id', userId)
+              .eq('raw_transcript', transcriptData.fullTranscript)
+              .maybeSingle();
+
+            if (existingByTranscript) {
+              console.log(`[Recall.ai Webhook] Identical transcript already saved for bot ${botId}. Skipping duplicate.`);
+              return;
+            }
           }
 
           console.log(`[Recall.ai Webhook] Generating AI summary for ${transcriptData.chunks.length} dialog turns...`);
@@ -81,7 +127,7 @@ export async function POST(req: NextRequest) {
           if (supabase && userId) {
             const { error: insertErr } = await supabase.from('meeting_summaries').insert({
               user_id: userId,
-              project_id: preSelectedProjectId || null,
+              project_id: preSelectedProjectId,
               title: sessionTitle || summary.title || 'Meeting Summary',
               meeting_date: new Date().toISOString().split('T')[0],
               file_name: fileName,
@@ -98,7 +144,7 @@ export async function POST(req: NextRequest) {
             if (insertErr) {
               console.error('[Recall.ai Webhook] Failed to insert summary to Supabase:', insertErr);
             } else {
-              console.log(`[Recall.ai Webhook] Successfully saved AI summary to Supabase for user ${userId}. Ready for project assignment!`);
+              console.log(`[Recall.ai Webhook] Successfully saved AI summary to Supabase for user ${userId}${preSelectedProjectId ? ` on project ${preSelectedProjectId}` : ''}.`);
             }
           }
         } catch (bgErr) {
@@ -107,7 +153,6 @@ export async function POST(req: NextRequest) {
       })();
     }
 
-    // Return 200 OK immediately as required by Recall.ai / Svix
     return NextResponse.json({
       received: true,
       event: eventType,
@@ -127,5 +172,6 @@ export async function GET() {
   return NextResponse.json({
     status: 'Recall.ai webhook receiver is active and ready.',
     endpoint: '/api/bot/recall/webhook',
+    subscribe: ['bot.done', 'transcript.done'],
   });
 }

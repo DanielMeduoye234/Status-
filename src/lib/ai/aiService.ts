@@ -323,6 +323,14 @@ function normalizeMeetingSummary(
 /**
  * Generate meeting summary from raw transcript text
  */
+const GEMINI_SUMMARY_MODELS = [
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.7-flash',
+];
+
 export async function generateMeetingSummary(
   rawTranscript: string,
   projectName?: string
@@ -331,15 +339,20 @@ export async function generateMeetingSummary(
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+  const hasConfiguredLlm = Boolean(
+    (geminiKey && geminiKey.trim() !== '') || (openaiKey && openaiKey.trim() !== '')
+  );
 
   let failureWarning: string | undefined = undefined;
 
   const userPrompt = `
-Analyze the following Zoom meeting transcript.
+Analyze ONLY the following meeting transcript. Produce a faithful, complete summary of THIS conversation — not a template, sample, or prior meeting.
 ${projectName ? `Associated Project: ${projectName}` : ''}
-VERIFIED MEETING PARTICIPANTS: ${parsed.participants.join(', ')}
+VERIFIED MEETING PARTICIPANTS: ${parsed.participants.join(', ') || '(derive only from names that appear in the transcript)'}
 
 STRICT GROUNDING & ANTI-HALLUCINATION REQUIREMENT:
+- Summarize every substantive workstream that was actually discussed. Cover action items, decisions, blockers, and who said what using the real dialogue.
+- If a section was not discussed (e.g. previous action review, metrics, blockers), return an empty array or a short statement that it was not covered. NEVER invent content to fill the template.
 - All attendees in 'in_attendance', speakers in 'who_said_what', and owners in 'action_points_by_person' MUST be chosen ONLY from the verified participants list above: [${parsed.participants.join(', ')}].
 - DO NOT invent, hallucinate, or import any third-party names, consultants, or attendees that did not join this call.
 - DO NOT use template example names (such as Funto, Stella, Ikenna, Mpenziwe, Swayliners, Hexavia) unless they are in the transcript.
@@ -349,16 +362,10 @@ TRANSCRIPT:
 ${parsed.cleanedDialogue}
   `;
 
-  // 1. Try Gemini with multi-model failover prioritizing fast and active models
+  // 1. Try Gemini with multi-model failover, aliases first so a valid model is always attempted
   if (geminiKey && geminiKey.trim() !== '') {
     const genAI = new GoogleGenerativeAI(geminiKey.trim());
-    const candidateModels = [
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-flash-latest',
-      'gemini-3.7-flash',
-      'gemini-flash-lite-latest',
-    ];
+    const candidateModels = GEMINI_SUMMARY_MODELS;
 
     for (const modelName of candidateModels) {
       try {
@@ -400,16 +407,23 @@ ${parsed.cleanedDialogue}
       const data = JSON.parse(cleanJsonString(content));
       return normalizeMeetingSummary(data, parsed, 'openai', 'gpt-4o-mini', projectName);
     } catch (err: any) {
-      failureWarning = `OpenAI API attempt encountered an error (${err.message || 'unknown'}). Showing heuristic fallback.`;
+      failureWarning = `OpenAI API attempt encountered an error (${err.message || 'unknown'}).`;
       console.error('[OpenAI Summary API Error]:', err);
     }
   }
 
-  // 3. Fallback Heuristic Generator (If no keys configured or offline)
-  const result = generateIntelligentMockSummary(parsed, projectName);
-  if (failureWarning) {
-    result.warning = failureWarning;
+  // 3. Heuristic mock only when no LLM keys are configured (local demo).
+  // Never silently return invented minutes for a real transcript.
+  if (hasConfiguredLlm) {
+    throw new Error(
+      failureWarning
+        ? `Could not generate an accurate meeting summary. ${failureWarning}`
+        : 'Could not generate an accurate meeting summary. Check GEMINI_API_KEY or OPENAI_API_KEY.'
+    );
   }
+
+  const result = generateIntelligentMockSummary(parsed, projectName);
+  result.warning = 'No Gemini or OpenAI API key is configured. Showing a local heuristic draft — not a live AI summary of this meeting.';
   return result;
 }
 
@@ -440,13 +454,7 @@ ${params.contentData}
   // 1. Try Gemini with multi-model failover (3.7-flash -> 3.5-flash -> flash-lite)
   if (geminiKey && geminiKey.trim() !== '') {
     const genAI = new GoogleGenerativeAI(geminiKey.trim());
-    const candidateModels = [
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-flash-latest',
-      'gemini-3.7-flash',
-      'gemini-flash-lite-latest',
-    ];
+    const candidateModels = GEMINI_SUMMARY_MODELS;
 
     for (const modelName of candidateModels) {
       try {

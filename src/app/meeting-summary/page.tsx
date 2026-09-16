@@ -47,6 +47,7 @@ import LiveBotMonitor from '@/components/bot/LiveBotMonitor';
 import BotSessionsDrawer from '@/components/bot/BotSessionsDrawer';
 import ConnectProjectModal from '@/components/bot/ConnectProjectModal';
 import { extractHexaviaMetadata } from '@/lib/ai/aiService';
+import { recallBotFileName } from '@/lib/bot/recallService';
 import { 
   BotSession, 
   MeetingPlatform, 
@@ -59,12 +60,12 @@ function MeetingSummaryContent() {
   const searchParams = useSearchParams();
   const summaryId = searchParams.get('id');
   const urlProjectId = searchParams.get('projectId');
-  const { user, projects, activeProject, saveMeetingSummary, updateMeetingSummary, deleteMeetingSummary, meetingSummaries } = useAuth();
+  const { user, projects, saveMeetingSummary, updateMeetingSummary, deleteMeetingSummary, meetingSummaries } = useAuth();
 
   const [rawTranscript, setRawTranscript] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || activeProject?.id || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(urlProjectId || '');
   const [activeSummaryId, setActiveSummaryId] = useState<string | null>(summaryId || null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -125,14 +126,12 @@ function MeetingSummaryContent() {
     }
   }, [summaryId, meetingSummaries]);
 
-  // Update selected project if urlProjectId or activeProject changes
+  // Keep the URL project as the destination when recording from a project page
   useEffect(() => {
     if (urlProjectId) {
       setSelectedProjectId(urlProjectId);
-    } else if (activeProject && !selectedProjectId) {
-      setSelectedProjectId(activeProject.id);
     }
-  }, [urlProjectId, activeProject, selectedProjectId]);
+  }, [urlProjectId]);
 
   const handleConnectProject = async (newProjectId: string | null) => {
     if (activeSummaryId) {
@@ -180,13 +179,15 @@ function MeetingSummaryContent() {
     textOverride?: string, 
     titleOverride?: string, 
     projOverride?: string,
-    promptProjectAssignment = false
+    promptProjectAssignment = false,
+    fileNameOverride?: string
   ) => {
     const textToProcess = textOverride || rawTranscript;
     if (!textToProcess.trim()) return;
 
     const titleToUse = titleOverride || meetingTitle;
     const projToUse = projOverride !== undefined ? projOverride : selectedProjectId;
+    const fileToUse = fileNameOverride || fileName || 'bot-transcript.txt';
 
     setLoading(true);
     setSavedSuccess(false);
@@ -203,7 +204,8 @@ function MeetingSummaryContent() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to generate summary');
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to generate summary');
       }
 
       const data = await res.json();
@@ -217,7 +219,7 @@ function MeetingSummaryContent() {
         title: titleToUse || data.title || 'Meeting Summary',
         meeting_date: meetingDate,
         project_id: projToUse || null,
-        file_name: fileName || 'bot-transcript.txt',
+        file_name: fileToUse,
         raw_transcript: textToProcess,
         summary_markdown: data.summary_markdown,
         executive_summary: data.executive_summary,
@@ -234,13 +236,15 @@ function MeetingSummaryContent() {
 
       setSavedSuccess(true);
 
-      // Prompt PM with project connection modal
-      if (promptProjectAssignment || !projToUse) {
+      if (!projToUse) {
         setIsConnectModalOpen(true);
+      } else {
+        setIsConnectModalOpen(false);
       }
     } catch (err) {
       console.error(err);
-      alert('Error generating summary. Please check your transcript.');
+      const message = err instanceof Error ? err.message : 'Error generating summary. Please check your transcript.';
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -347,10 +351,14 @@ function MeetingSummaryContent() {
     setRawTranscript(transcriptText);
     if (title) setMeetingTitle(title);
     if (projId) setSelectedProjectId(projId);
-    setFileName(`ai-bot-${new Date().toISOString().split('T')[0]}.txt`);
 
-    // Execute processing immediately and prompt PM with project assignment
-    executeProcessing(transcriptText, title, projId, autoPromptProject);
+    const recallId = activeBotSession?.recallBotId;
+    const nextFileName = recallId
+      ? recallBotFileName(recallId)
+      : `ai-bot-${new Date().toISOString().split('T')[0]}.txt`;
+    setFileName(nextFileName);
+
+    executeProcessing(transcriptText, title, projId, Boolean(autoPromptProject && !projId), nextFileName);
   };
 
   const handleCopyMarkdown = () => {
@@ -530,6 +538,7 @@ function MeetingSummaryContent() {
                   onImportTranscript={handleImportBotTranscript}
                   onDismiss={() => setActiveBotSession(null)}
                   isSummarizing={loading}
+                  savedSummaryId={activeSummaryId}
                 />
               ) : (
                 /* Launchpad Card */
@@ -758,7 +767,7 @@ function MeetingSummaryContent() {
                       {summaryResult.provider === 'gemini' && (
                         <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200 flex items-center gap-1">
                           <Sparkles className="h-3 w-3 text-blue-600" />
-                          Google Gemini 1.5 Flash
+                          Google Gemini {summaryResult.model || 'Flash'}
                         </span>
                       )}
                       {summaryResult.provider === 'openai' && (
@@ -768,8 +777,8 @@ function MeetingSummaryContent() {
                         </span>
                       )}
                       {summaryResult.provider === 'heuristic_mock' && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200 flex items-center gap-1">
-                          ⚡ Heuristic Engine
+                        <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200 flex items-center gap-1">
+                          Local Draft Only — Not Live AI
                         </span>
                       )}
                     </div>
@@ -919,26 +928,44 @@ function MeetingSummaryContent() {
                     <span>{summaryResult.warning}</span>
                   </div>
                 )}
+                {summaryResult.provider === 'heuristic_mock' && !summaryResult.warning && (
+                  <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 border border-amber-200">
+                    <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                    <span>This is a local draft, not a live AI summary of the meeting transcript.</span>
+                  </div>
+                )}
 
                 {savedSuccess && (
-                  <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
+                  <div className="mb-3 flex flex-col gap-2.5 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                      <span>Meeting summary recorded successfully!</span>
+                      <span>
+                        {selectedProjectId
+                          ? `Saved to ${projects.find((p) => p.id === selectedProjectId)?.name || 'your project'}`
+                          : 'Meeting summary recorded successfully!'}
+                      </span>
                     </div>
                     {selectedProjectId ? (
-                      <Link
-                        href={`/projects/${selectedProjectId}`}
-                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-colors self-start sm:self-auto"
-                      >
-                        <span>Open in Project Records</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/dashboard?recorded=${activeSummaryId || ''}`}
+                          className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-colors"
+                        >
+                          <span>Open dashboard</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                        <Link
+                          href={`/projects/${selectedProjectId}?recorded=${activeSummaryId || ''}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white hover:bg-emerald-100 text-emerald-800 px-2.5 py-1 text-[11px] font-bold transition-colors"
+                        >
+                          <span>Open project</span>
+                        </Link>
+                      </div>
                     ) : (
                       <button
                         type="button"
                         onClick={() => setIsConnectModalOpen(true)}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 underline self-start sm:self-auto cursor-pointer"
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 underline self-start cursor-pointer"
                       >
                         <span>Connect to a Project now</span>
                         <ArrowRight className="h-3 w-3" />

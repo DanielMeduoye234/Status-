@@ -504,7 +504,7 @@ create index if not exists idx_monthly_reports_project_id on public.monthly_repo
               <span className="text-[11px] text-slate-400 font-medium">Svix Compatible</span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Paste this URL into your Recall.ai Webhooks Dashboard if you wish to receive real-time webhook callbacks:
+              Paste this URL into your Recall.ai Webhooks Dashboard and subscribe to <code className="font-mono bg-slate-100 px-1 rounded">bot.done</code> and <code className="font-mono bg-slate-100 px-1 rounded">transcript.done</code>:
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-mono text-slate-800 truncate">

@@ -30,6 +30,87 @@ export function isRecallConfigured(): boolean {
   return Boolean(key && key.trim().length > 0);
 }
 
+export function recallBotFileName(botId: string): string {
+  return `recall-bot-${botId.slice(0, 12)}.txt`;
+}
+
+function normalizeRecallLanguageCode(language?: string): string {
+  if (!language || !language.trim()) return 'auto';
+  const trimmed = language.trim();
+  if (trimmed.toLowerCase() === 'auto') return 'auto';
+  // Recall streaming accepts BCP-47 simple codes (en, es) or auto
+  const simple = trimmed.split(/[-_]/)[0]?.toLowerCase();
+  return simple && simple.length >= 2 ? simple : 'auto';
+}
+
+function extractRelativeSeconds(timestamp: unknown): number {
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+  if (typeof timestamp === 'string') {
+    const asNumber = Number(timestamp);
+    if (Number.isFinite(asNumber)) return asNumber;
+    const parsedDate = Date.parse(timestamp);
+    if (!Number.isNaN(parsedDate)) return parsedDate / 1000;
+  }
+  if (timestamp && typeof timestamp === 'object') {
+    const obj = timestamp as { relative?: unknown; absolute?: unknown; seconds?: unknown };
+    if (typeof obj.relative === 'number' && Number.isFinite(obj.relative)) {
+      return obj.relative;
+    }
+    if (typeof obj.seconds === 'number' && Number.isFinite(obj.seconds)) {
+      return obj.seconds;
+    }
+    if (typeof obj.relative === 'string' && Number.isFinite(Number(obj.relative))) {
+      return Number(obj.relative);
+    }
+  }
+  return 0;
+}
+
+function unwrapTranscriptSegments(payload: unknown): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+
+  if (typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    // A single Recall utterance already has participant + words; do not flatten `.words`.
+    if (obj.participant || obj.speaker || (typeof obj.text === 'string' && obj.text.trim())) {
+      return [obj];
+    }
+
+    const nestedKeys = ['transcript', 'segments', 'utterances', 'results', 'data'];
+    for (const key of nestedKeys) {
+      const value = obj[key];
+      if (Array.isArray(value)) return value;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const deeper = unwrapTranscriptSegments(value);
+        if (deeper.length > 0) return deeper;
+      }
+    }
+  }
+  return [];
+}
+
+function scoreTranscriptSegments(segments: any[]): number {
+  if (!Array.isArray(segments) || segments.length === 0) return 0;
+  return segments.reduce((total, seg) => {
+    if (typeof seg?.text === 'string') return total + seg.text.length;
+    if (Array.isArray(seg?.words)) {
+      return total + seg.words.reduce((inner: number, w: any) => inner + String(w?.text || '').length, 0);
+    }
+    if (typeof seg?.transcript === 'string') return total + seg.transcript.length;
+    return total;
+  }, 0);
+}
+
+async function downloadTranscriptSegments(downloadUrl: string): Promise<any[]> {
+  const dlRes = await fetch(downloadUrl, { cache: 'no-store' });
+  if (!dlRes.ok) return [];
+  const dlData = await dlRes.json();
+  return unwrapTranscriptSegments(dlData);
+}
+
 // Avatar color generator based on speaker name
 const AVATAR_COLORS = [
   '#3b82f6', // blue
@@ -125,10 +206,26 @@ export async function dispatchRecallBot(params: DispatchRecallBotParams) {
   const baseUrl = getRecallBaseUrl(params.region);
   const botName = params.botName || 'Hexavia Notetaker';
 
-  // Format payload according to Recall.ai OpenAPI specs
+  const languageCode = normalizeRecallLanguageCode(params.language);
+
+  // Format payload according to Recall.ai OpenAPI specs.
+  // transcript.provider MUST be set — Recall defaults this to null (no transcript).
   const payload: any = {
     meeting_url: params.meetingUrl,
     bot_name: botName,
+    recording_config: {
+      transcript: {
+        provider: {
+          recallai_streaming: {
+            mode: 'prioritize_accuracy',
+            language_code: languageCode,
+          },
+        },
+        diarization: {
+          use_separate_streams_when_available: true,
+        },
+      },
+    },
   };
 
   // Scheduled join support
@@ -213,6 +310,72 @@ export async function getRecallBot(botId: string, apiKeyOverride?: string, regio
   return await response.json();
 }
 
+function isLikelyBotSpeaker(name: string, botName?: string): boolean {
+  const cleaned = name.trim().toLowerCase();
+  if (!cleaned) return false;
+  if (botName && cleaned === botName.trim().toLowerCase()) return true;
+  return cleaned.includes('hexavia notetaker') || cleaned.includes('notetaker bot');
+}
+
+function parseRecallTranscriptChunks(
+  segments: any[],
+  botName?: string
+): { chunks: TranscriptChunk[]; participants: string[] } {
+  const chunks: TranscriptChunk[] = [];
+  const participantsSet = new Set<string>();
+
+  for (const seg of segments) {
+    const rawSpeaker =
+      seg.participant?.name ||
+      seg.participant?.user_name ||
+      seg.speaker?.name ||
+      seg.speaker ||
+      seg.name ||
+      '';
+    const speaker = String(rawSpeaker || '').trim() || 'Participant';
+
+    let text = '';
+    let startSec = 0;
+    if (Array.isArray(seg.words) && seg.words.length > 0) {
+      text = seg.words.map((w: any) => String(w?.text || '').trim()).filter(Boolean).join(' ').trim();
+      startSec = extractRelativeSeconds(seg.words[0]?.start_timestamp);
+    } else if (typeof seg.text === 'string' && seg.text.trim()) {
+      text = seg.text.trim();
+      startSec = extractRelativeSeconds(seg.start_timestamp ?? seg.start);
+    } else if (typeof seg.transcript === 'string' && seg.transcript.trim()) {
+      text = seg.transcript.trim();
+      startSec = extractRelativeSeconds(seg.start_timestamp ?? seg.start);
+    }
+
+    if (!text) continue;
+    if (isLikelyBotSpeaker(speaker, botName)) continue;
+
+    participantsSet.add(speaker);
+    chunks.push({
+      timestamp: formatSecondsToTimestamp(startSec),
+      speaker,
+      avatarColor: getSpeakerAvatarColor(speaker),
+      text,
+    });
+  }
+
+  return { chunks, participants: Array.from(participantsSet) };
+}
+
+export function buildTranscriptFromRecallPayload(payload: unknown, botName?: string): {
+  chunks: TranscriptChunk[];
+  fullTranscript: string;
+  participants: string[];
+  rawSegments: any[];
+} {
+  const segments = unwrapTranscriptSegments(payload);
+  const { chunks, participants } = parseRecallTranscriptChunks(segments, botName);
+  const fullTranscript = chunks
+    .map((c) => `[${c.timestamp}] ${c.speaker}: ${c.text}`)
+    .join('\n\n');
+  return { chunks, fullTranscript, participants, rawSegments: segments };
+}
+
 /**
  * Retrieve transcript segments from Recall.ai and parse into Hexavia format
  * Uses Recall.ai modern /transcript/?bot_id= endpoint & download_url
@@ -232,9 +395,19 @@ export async function getRecallBotTranscript(
 
   const baseUrl = getRecallBaseUrl(regionOverride);
   let segments: any[] = [];
+  let bestScore = 0;
+  let botName: string | undefined;
+
+  const considerSegments = (candidate: any[]) => {
+    const unwrapped = unwrapTranscriptSegments(candidate);
+    const score = scoreTranscriptSegments(unwrapped);
+    if (score > bestScore) {
+      bestScore = score;
+      segments = unwrapped;
+    }
+  };
 
   try {
-    // 1. Query transcripts associated with this bot_id
     const response = await fetch(`${baseUrl}/transcript/?bot_id=${botId}`, {
       method: 'GET',
       headers: {
@@ -249,22 +422,15 @@ export async function getRecallBotTranscript(
       const results = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
 
       for (const item of results) {
-        if (item.data?.download_url) {
+        const downloadUrl = item?.data?.download_url;
+        if (downloadUrl) {
           try {
-            const dlRes = await fetch(item.data.download_url);
-            if (dlRes.ok) {
-              const dlData = await dlRes.json();
-              if (Array.isArray(dlData)) {
-                segments = dlData;
-                break;
-              }
-            }
+            considerSegments(await downloadTranscriptSegments(downloadUrl));
           } catch (dlErr) {
             console.warn('Failed downloading transcript from download_url:', dlErr);
           }
-        } else if (Array.isArray(item.words) || Array.isArray(item.transcript)) {
-          segments = item.words || item.transcript;
-          break;
+        } else {
+          considerSegments(unwrapTranscriptSegments(item));
         }
       }
     }
@@ -272,71 +438,38 @@ export async function getRecallBotTranscript(
     console.warn('Error fetching transcript list for bot:', err);
   }
 
-  // 2. If segments not found yet, check bot media shortcuts
-  if (segments.length === 0) {
-    try {
-      const botRes = await fetch(`${baseUrl}/bot/${botId}/`, {
-        headers: {
-          'Authorization': `Token ${apiKey}`,
-          'accept': 'application/json',
-        },
-        cache: 'no-store',
-      });
-      if (botRes.ok) {
-        const botData = await botRes.json();
-        const recordings = botData.recordings || [];
-        for (const rec of recordings) {
-          const dlUrl = rec.media_shortcuts?.transcript?.data?.download_url;
-          if (dlUrl) {
-            const dlRes = await fetch(dlUrl);
-            if (dlRes.ok) {
-              const dlData = await dlRes.json();
-              if (Array.isArray(dlData)) {
-                segments = dlData;
-                break;
-              }
-            }
+  try {
+    const botRes = await fetch(`${baseUrl}/bot/${botId}/`, {
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    if (botRes.ok) {
+      const botData = await botRes.json();
+      botName = botData.bot_name || botData.name;
+      const recordings = botData.recordings || [];
+      for (const rec of recordings) {
+        const dlUrl = rec.media_shortcuts?.transcript?.data?.download_url;
+        if (dlUrl) {
+          try {
+            considerSegments(await downloadTranscriptSegments(dlUrl));
+          } catch (dlErr) {
+            console.warn('Failed downloading transcript from bot recording shortcut:', dlErr);
           }
         }
       }
-    } catch (botErr) {
-      console.warn('Error checking bot recordings for transcript:', botErr);
     }
+  } catch (botErr) {
+    console.warn('Error checking bot recordings for transcript:', botErr);
   }
 
   if (!Array.isArray(segments) || segments.length === 0) {
     return { chunks: [], fullTranscript: '', participants: [], rawSegments: [] };
   }
 
-  const chunks: TranscriptChunk[] = [];
-  const participantsSet = new Set<string>();
-
-  for (const seg of segments) {
-    const speaker = seg.speaker || seg.participant?.name || 'Participant';
-    participantsSet.add(speaker);
-
-    // Words array
-    let text = '';
-    let startSec = 0;
-    if (Array.isArray(seg.words) && seg.words.length > 0) {
-      text = seg.words.map((w: any) => w.text).join(' ').trim();
-      startSec = seg.words[0].start_timestamp ?? 0;
-    } else if (seg.text) {
-      text = seg.text.trim();
-      startSec = seg.start_timestamp ?? 0;
-    }
-
-    if (!text) continue;
-
-    const timestamp = formatSecondsToTimestamp(startSec);
-    chunks.push({
-      timestamp,
-      speaker,
-      avatarColor: getSpeakerAvatarColor(speaker),
-      text,
-    });
-  }
-
+  const { chunks, participants } = parseRecallTranscriptChunks(segments, botName);
   const fullTranscript = chunks
     .map((c) => `[${c.timestamp}] ${c.speaker}: ${c.text}`)
     .join('\n\n');
@@ -344,9 +477,35 @@ export async function getRecallBotTranscript(
   return {
     chunks,
     fullTranscript,
-    participants: Array.from(participantsSet),
+    participants,
     rawSegments: segments,
   };
+}
+
+const MIN_TRANSCRIPT_CHARS = 20;
+
+export async function waitForRecallBotTranscript(
+  botId: string,
+  options?: {
+    attempts?: number;
+    delayMs?: number;
+    apiKeyOverride?: string;
+    regionOverride?: string;
+  }
+) {
+  const attempts = options?.attempts ?? 5;
+  const delayMs = options?.delayMs ?? 2500;
+  let last = await getRecallBotTranscript(botId, options?.apiKeyOverride, options?.regionOverride);
+
+  for (let i = 1; i < attempts; i++) {
+    if (last.fullTranscript && last.fullTranscript.trim().length >= MIN_TRANSCRIPT_CHARS) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    last = await getRecallBotTranscript(botId, options?.apiKeyOverride, options?.regionOverride);
+  }
+
+  return last;
 }
 
 /**

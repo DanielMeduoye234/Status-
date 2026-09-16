@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
             app: 'Hexavia Status',
             sessionId,
             projectId: projectId || '',
+            projectName: projectName || '',
             userId: userId || '',
             title: sessionTitle,
           },

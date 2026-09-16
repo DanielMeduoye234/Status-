@@ -166,3 +166,11 @@ create index if not exists idx_meeting_summaries_date on public.meeting_summarie
 create index if not exists idx_monthly_reports_user_id on public.monthly_reports(user_id);
 create index if not exists idx_monthly_reports_project_id on public.monthly_reports(project_id);
 create index if not exists idx_monthly_reports_month_year on public.monthly_reports(month_year);
+
+-- Live dashboard updates when a bot meeting is saved
+do $$
+begin
+  alter publication supabase_realtime add table public.meeting_summaries;
+exception
+  when duplicate_object then null;
+end $$;

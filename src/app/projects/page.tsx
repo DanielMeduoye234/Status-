@@ -13,10 +13,12 @@ import {
   Trash2
 } from 'lucide-react';
 import ProjectModal from '@/components/ProjectModal';
+import { useRecordedMeetingId } from '@/components/JustRecordedBanner';
 
 export default function ProjectsPage() {
   const { projects, meetingSummaries, monthlyReports, setActiveProject, deleteProject } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { recordedId } = useRecordedMeetingId();
 
   return (
     <AppLayout>
@@ -64,13 +66,16 @@ export default function ProjectsPage() {
                 .filter((m) => m.project_id === proj.id)
                 .sort((a, b) => new Date(b.meeting_date || 0).getTime() - new Date(a.meeting_date || 0).getTime());
               const projectReports = monthlyReports.filter((r) => r.project_id === proj.id);
+              const isJustRecorded = Boolean(recordedId && projectMeetings.some((m) => m.id === recordedId));
               const latestMeeting = projectMeetings[0];
               const totalActions = projectMeetings.reduce((sum, m) => sum + (m.action_items?.length || 0), 0);
 
               return (
                 <div
                   key={proj.id}
-                  className="group flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:border-blue-400 hover:shadow-md transition-all duration-200"
+                  className={`group flex flex-col justify-between rounded-2xl border bg-white p-5 shadow-sm hover:border-blue-400 hover:shadow-md transition-all duration-200 ${
+                    isJustRecorded ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-slate-200'
+                  }`}
                 >
                   <div>
                     {/* Header Row */}
@@ -150,9 +155,13 @@ export default function ProjectsPage() {
 
                     {/* Latest Meeting Record Snippet if available */}
                     {latestMeeting ? (
-                      <div className="mb-4 rounded-xl bg-blue-50/50 p-2.5 border border-blue-100/60 text-xs">
-                        <div className="flex items-center justify-between text-[10px] text-blue-700 font-semibold mb-1">
-                          <span>Latest Meeting Record:</span>
+                      <div className={`mb-4 rounded-xl p-2.5 border text-xs ${
+                        isJustRecorded ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50/50 border-blue-100/60'
+                      }`}>
+                        <div className={`flex items-center justify-between text-[10px] font-semibold mb-1 ${
+                          isJustRecorded ? 'text-emerald-800' : 'text-blue-700'
+                        }`}>
+                          <span>{isJustRecorded ? 'Just recorded' : 'Latest Meeting Record:'}</span>
                           <span>{latestMeeting.meeting_date}</span>
                         </div>
                         <p className="text-slate-800 font-medium truncate text-[11px]">
@@ -169,7 +178,7 @@ export default function ProjectsPage() {
                   {/* Action Buttons */}
                   <div className="space-y-2 pt-2 border-t border-slate-100">
                     <Link
-                      href={`/projects/${proj.id}`}
+                      href={isJustRecorded && recordedId ? `/projects/${proj.id}?recorded=${recordedId}` : `/projects/${proj.id}`}
                       onClick={() => setActiveProject(proj)}
                       className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 py-2 text-center text-xs font-semibold text-white transition-colors shadow-xs"
                     >

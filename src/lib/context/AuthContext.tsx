@@ -1,8 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { createClient } from '../supabase/client';
+import { createClient, isSupabaseConfigured } from '../supabase/client';
 import { User } from '@supabase/supabase-js';
+import { isValidUUID } from '../utils/uuid';
+
+export { isValidUUID };
 
 export interface Project {
   id: string;
@@ -76,11 +79,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function isValidUUID(str?: string | null): boolean {
-  if (!str) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,7 +89,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const supabase = createClient();
 
-  const loadInitialData = async (currentUser: User | null) => {
+  const loadInitialData = async (
+    currentUser: User | null,
+    options?: { resetActiveProject?: boolean }
+  ) => {
+    const resetActiveProject = options?.resetActiveProject !== false;
     try {
       if (currentUser) {
         // Fetch real Supabase data for authenticated user
@@ -102,10 +104,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!projError && projData) {
           setProjects(projData);
-          setActiveProject(projData.length > 0 ? projData[0] : null);
+          if (resetActiveProject) {
+            setActiveProject(projData.length > 0 ? projData[0] : null);
+          } else {
+            setActiveProject((prev) => {
+              if (prev && projData.some((p) => p.id === prev.id)) return prev;
+              return projData[0] || null;
+            });
+          }
         } else {
           setProjects([]);
-          setActiveProject(null);
+          if (resetActiveProject) setActiveProject(null);
         }
 
         const { data: meetingData } = await supabase
@@ -313,11 +322,90 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const saveMeetingSummary = async (
     summary: Omit<MeetingSummaryItem, 'id' | 'created_at'>
   ): Promise<MeetingSummaryItem> => {
-    const targetProjectId = summary.project_id || null;
+    const supabaseProjectId = isValidUUID(summary.project_id) ? summary.project_id : null;
+
+    const matchesExisting = (item: MeetingSummaryItem) => {
+      if (summary.file_name && item.file_name === summary.file_name) return true;
+      if (summary.raw_transcript && item.raw_transcript === summary.raw_transcript) return true;
+      return false;
+    };
+
+    let existingId = meetingSummaries.find(matchesExisting)?.id;
+
+    if (user) {
+      try {
+        if (summary.file_name) {
+          const { data: byFile } = await supabase
+            .from('meeting_summaries')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('file_name', summary.file_name)
+            .maybeSingle();
+          if (byFile?.id) existingId = byFile.id;
+        }
+
+        if (!existingId && summary.raw_transcript) {
+          const { data: byTranscript } = await supabase
+            .from('meeting_summaries')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('raw_transcript', summary.raw_transcript)
+            .maybeSingle();
+          if (byTranscript?.id) existingId = byTranscript.id;
+        }
+      } catch (e) {
+        console.warn('Supabase meeting lookup error:', e);
+      }
+    }
+
+    if (existingId) {
+      const payload: Record<string, unknown> = {
+        title: summary.title,
+        meeting_date: summary.meeting_date,
+        file_name: summary.file_name,
+        raw_transcript: summary.raw_transcript,
+        summary_markdown: summary.summary_markdown,
+        executive_summary: summary.executive_summary,
+        who_said_what: summary.who_said_what,
+        action_items: summary.action_items,
+        key_decisions: summary.key_decisions,
+        key_blockers: summary.key_blockers,
+        participants: summary.participants,
+        project_id: supabaseProjectId,
+        updated_at: new Date().toISOString(),
+      };
+
+      let merged: MeetingSummaryItem = {
+        ...summary,
+        id: existingId,
+        user_id: user?.id,
+        project_id: supabaseProjectId,
+        created_at: meetingSummaries.find((m) => m.id === existingId)?.created_at,
+      };
+
+      if (user && isValidUUID(existingId)) {
+        try {
+          const { data, error } = await supabase
+            .from('meeting_summaries')
+            .update(payload)
+            .eq('id', existingId)
+            .select()
+            .single();
+          if (!error && data) merged = data;
+        } catch (e) {
+          console.warn('Supabase meeting upsert update error:', e);
+        }
+      }
+
+      const updatedList = meetingSummaries.map((m) => (m.id === existingId ? merged : m));
+      setMeetingSummaries(updatedList);
+      localStorage.setItem('hexavia_meetings', JSON.stringify(updatedList));
+      return merged;
+    }
 
     const newItem: MeetingSummaryItem = {
       ...summary,
-      project_id: targetProjectId,
+      project_id: supabaseProjectId,
       id: crypto.randomUUID(),
       user_id: user?.id,
       created_at: new Date().toISOString(),
@@ -325,7 +413,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       try {
-        const supabaseProjectId = isValidUUID(targetProjectId) ? targetProjectId : null;
         const { data, error } = await supabase
           .from('meeting_summaries')
           .insert({
@@ -506,8 +593,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshData = async () => {
-    await loadInitialData(user);
+    await loadInitialData(user, { resetActiveProject: false });
   };
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured()) return;
+
+    const channel = supabase
+      .channel(`meeting_summaries:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'meeting_summaries',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const incoming = (payload.new || payload.old) as MeetingSummaryItem | undefined;
+          if (!incoming?.id && payload.eventType !== 'DELETE') return;
+
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const row = payload.new as MeetingSummaryItem;
+            setMeetingSummaries((prev) => {
+              const withoutDup = prev.filter(
+                (m) =>
+                  m.id !== row.id &&
+                  !(row.file_name && m.file_name === row.file_name)
+              );
+              return [row, ...withoutDup];
+            });
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const row = payload.new as MeetingSummaryItem;
+            setMeetingSummaries((prev) => {
+              const exists = prev.some((m) => m.id === row.id);
+              if (!exists) return [row, ...prev];
+              return prev.map((m) => (m.id === row.id ? { ...m, ...row } : m));
+            });
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const removedId = (payload.old as { id?: string }).id;
+            if (removedId) {
+              setMeetingSummaries((prev) => prev.filter((m) => m.id !== removedId));
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    const refreshQuietly = () => {
+      if (document.visibilityState === 'visible') {
+        loadInitialData(user, { resetActiveProject: false });
+      }
+    };
+
+    window.addEventListener('focus', refreshQuietly);
+    document.addEventListener('visibilitychange', refreshQuietly);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('focus', refreshQuietly);
+      document.removeEventListener('visibilitychange', refreshQuietly);
+    };
+  }, [user, supabase]);
 
   const signOut = async () => {
     try {

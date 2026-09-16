@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Bot, 
   Sparkles, 
@@ -23,7 +24,8 @@ import {
   RefreshCw,
   Zap,
   FolderKanban,
-  X
+  X,
+  LayoutDashboard
 } from 'lucide-react';
 import { 
   BotSession, 
@@ -39,6 +41,27 @@ interface LiveBotMonitorProps {
   onImportTranscript: (fullTranscript: string, title: string, projectId?: string, autoPromptProject?: boolean) => void;
   onDismiss: () => void;
   isSummarizing?: boolean;
+  savedSummaryId?: string | null;
+}
+
+const MIN_REAL_TRANSCRIPT_CHARS = 20;
+const REAL_TRANSCRIPT_WAIT_MS = 90_000;
+
+function getSimulatedTranscriptText(platform: BotSession['platform']): string {
+  const script = SIMULATED_TRANSCRIPT_DIALOGS[platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
+  return script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
+}
+
+function getRealTranscriptText(session: BotSession): string {
+  const fromFull = (session.fullTranscript || '').trim();
+  if (fromFull.length >= MIN_REAL_TRANSCRIPT_CHARS) return fromFull;
+  if (session.transcriptChunks.length > 0) {
+    return session.transcriptChunks
+      .map((c) => `[${c.timestamp}] ${c.speaker}: ${c.text}`)
+      .join('\n\n')
+      .trim();
+  }
+  return fromFull;
 }
 
 export default function LiveBotMonitor({
@@ -47,24 +70,49 @@ export default function LiveBotMonitor({
   onImportTranscript,
   onDismiss,
   isSummarizing = false,
+  savedSummaryId = null,
 }: LiveBotMonitorProps) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [transcriptWaitError, setTranscriptWaitError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const hasAutoTriggeredRef = useRef(false);
+  const completedWaitStartedAtRef = useRef<number | null>(null);
 
   const platformInfo = detectMeetingPlatform(session.meetingUrl);
+  const realTranscriptText = getRealTranscriptText(session);
+  const hasRealTranscript = realTranscriptText.length >= MIN_REAL_TRANSCRIPT_CHARS;
 
-  // Auto-trigger summarization and project assignment when meeting ends for everyone
+  // Auto-trigger summarization only when a real transcript exists for live bots
   useEffect(() => {
-    if (session.status === 'completed' && !hasAutoTriggeredRef.current) {
-      hasAutoTriggeredRef.current = true;
-      const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
-      const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
-      if (fullText.trim()) {
-        onImportTranscript(fullText, session.title, session.projectId, true);
-      }
+    if (session.status !== 'completed' || hasAutoTriggeredRef.current) {
+      return;
     }
-  }, [session.status, session.fullTranscript, session.platform, session.title, session.projectId, onImportTranscript]);
+
+    if (session.isRealBot) {
+      if (!hasRealTranscript) return;
+      hasAutoTriggeredRef.current = true;
+      setTranscriptWaitError(null);
+      onImportTranscript(realTranscriptText, session.title, session.projectId, !session.projectId);
+      return;
+    }
+
+    hasAutoTriggeredRef.current = true;
+    const fullText = session.fullTranscript || getSimulatedTranscriptText(session.platform);
+    if (fullText.trim()) {
+      onImportTranscript(fullText, session.title, session.projectId, !session.projectId);
+    }
+  }, [
+    session.status,
+    session.fullTranscript,
+    session.platform,
+    session.title,
+    session.projectId,
+    session.isRealBot,
+    hasRealTranscript,
+    realTranscriptText,
+    onImportTranscript,
+  ]);
 
   // Format seconds into HH:MM:SS or MM:SS
   const formatTime = (seconds: number) => {
@@ -98,13 +146,27 @@ export default function LiveBotMonitor({
     return () => clearInterval(timer);
   }, [session, onUpdateSession]);
 
-  // Live polling for real Recall.ai bot sessions
+  // Live polling for real Recall.ai bot sessions — continue after call ends until transcript is ready
   useEffect(() => {
     if (!session.isRealBot || !session.recallBotId) {
       return;
     }
-    if (session.status === 'completed' || session.status === 'error') {
+    if (session.status === 'error') {
       return;
+    }
+
+    if (session.status === 'completed') {
+      if (hasRealTranscript) return;
+      if (!completedWaitStartedAtRef.current) {
+        completedWaitStartedAtRef.current = Date.now();
+      }
+      if (Date.now() - completedWaitStartedAtRef.current > REAL_TRANSCRIPT_WAIT_MS) {
+        setTranscriptWaitError('Transcript not ready yet. Click Sync Transcript to retry, then generate the summary.');
+        return;
+      }
+    } else {
+      completedWaitStartedAtRef.current = null;
+      setTranscriptWaitError(null);
     }
 
     let isMounted = true;
@@ -139,7 +201,7 @@ export default function LiveBotMonitor({
       isMounted = false;
       clearInterval(pollInterval);
     };
-  }, [session, onUpdateSession]);
+  }, [session, onUpdateSession, hasRealTranscript]);
 
   // Manual refresh for Recall.ai status and transcript
   const handleManualRefresh = async () => {
@@ -158,6 +220,9 @@ export default function LiveBotMonitor({
           transcriptChunks: data.transcriptChunks?.length > 0 ? data.transcriptChunks : session.transcriptChunks,
           fullTranscript: data.fullTranscript || session.fullTranscript,
         });
+        if ((data.fullTranscript || '').trim().length >= MIN_REAL_TRANSCRIPT_CHARS) {
+          setTranscriptWaitError(null);
+        }
       }
     } catch (err) {
       console.error('Manual refresh failed:', err);
@@ -232,6 +297,13 @@ export default function LiveBotMonitor({
       } catch (leaveErr) {
         console.error('Error ejecting Recall.ai bot:', leaveErr);
       }
+
+      onUpdateSession({
+        ...session,
+        status: 'completed',
+        activeSpeaker: undefined,
+      });
+      return;
     }
 
     const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
@@ -245,6 +317,23 @@ export default function LiveBotMonitor({
       fullTranscript: fullText,
       activeSpeaker: undefined,
     });
+  };
+
+  const handleImportFromSession = (autoPromptProject: boolean) => {
+    if (session.isRealBot) {
+      if (!hasRealTranscript) {
+        handleManualRefresh();
+        setTranscriptWaitError('Waiting for the live Recall transcript. Sync again in a moment, then generate the summary.');
+        return;
+      }
+      onImportTranscript(realTranscriptText, session.title, session.projectId, !session.projectId);
+      return;
+    }
+
+    const fullText = session.fullTranscript || getSimulatedTranscriptText(session.platform);
+    if (fullText.trim()) {
+      onImportTranscript(fullText, session.title, session.projectId, !session.projectId);
+    }
   };
 
   // Copy transcript to clipboard
@@ -291,8 +380,8 @@ export default function LiveBotMonitor({
             <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
             {isSummarizing 
               ? 'Meeting Ended • AI Summarizing...' 
-              : session.isRealBot 
-                ? 'Call Ended • Summary Ready' 
+              : session.isRealBot
+                ? (hasRealTranscript ? 'Call Ended • Transcript Ready' : 'Call Ended • Waiting for Transcript')
                 : 'Demo Finished • Summary Ready'}
           </span>
         );
@@ -468,25 +557,45 @@ export default function LiveBotMonitor({
               <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
                 {isSummarizing 
                   ? 'AI is parsing the complete conversation, extracting action items and executive decisions...'
-                  : 'Meeting notes synthesized! Connect this summary to a project to update your project status.'}
+                  : session.isRealBot && !hasRealTranscript
+                    ? 'Call ended. Waiting for Recall.ai to finish the official transcript before summarizing.'
+                    : session.projectId
+                      ? 'Meeting notes are saved to the project you started from and will show on your dashboard.'
+                      : 'Meeting notes are ready. Connect them to a project to update that project on your dashboard.'}
               </p>
+              {transcriptWaitError && (
+                <p className="text-[11px] text-amber-700 mt-1 font-medium">{transcriptWaitError}</p>
+              )}
             </div>
           </div>
 
           <button
             type="button"
             onClick={() => {
-              const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
-              const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
-              onImportTranscript(fullText, session.title, session.projectId, true);
+              if (session.projectId && !isSummarizing) {
+                router.push(savedSummaryId ? `/dashboard?recorded=${savedSummaryId}` : '/dashboard');
+                return;
+              }
+              handleImportFromSession(true);
             }}
-            disabled={isSummarizing}
+            disabled={isSummarizing || (Boolean(session.isRealBot) && !hasRealTranscript)}
             className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
           >
             {isSummarizing ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                 <span>Generating Summary...</span>
+              </>
+            ) : session.isRealBot && !hasRealTranscript ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Waiting for Transcript</span>
+              </>
+            ) : session.projectId ? (
+              <>
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                <span>View on dashboard</span>
+                <ArrowRight className="h-3 w-3" />
               </>
             ) : (
               <>
@@ -653,17 +762,14 @@ export default function LiveBotMonitor({
             type="button"
             disabled={isSummarizing}
             onClick={() => {
-              if (!session.fullTranscript && !session.isRealBot) {
+              if (session.status === 'completed' && session.projectId && !isSummarizing) {
+                router.push(savedSummaryId ? `/dashboard?recorded=${savedSummaryId}` : '/dashboard');
+                return;
+              }
+              if (!session.isRealBot && !session.fullTranscript) {
                 handleFastForward();
               }
-              const script = SIMULATED_TRANSCRIPT_DIALOGS[session.platform] || SIMULATED_TRANSCRIPT_DIALOGS.other;
-              const fullText = session.fullTranscript || script.map((c) => `${c.timestamp} ${c.speaker}: ${c.text}`).join('\n\n');
-              onImportTranscript(
-                fullText,
-                session.title,
-                session.projectId,
-                session.status === 'completed'
-              );
+              handleImportFromSession(session.status === 'completed');
             }}
             className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 disabled:opacity-50 transition-all cursor-pointer"
           >
@@ -675,7 +781,11 @@ export default function LiveBotMonitor({
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                <span>{session.status === 'completed' ? 'Connect to Project' : 'Generate Meeting Summary'}</span>
+                <span>
+                  {session.status === 'completed'
+                    ? (session.projectId ? 'View on dashboard' : 'Connect to Project')
+                    : 'Generate Meeting Summary'}
+                </span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </>
             )}
