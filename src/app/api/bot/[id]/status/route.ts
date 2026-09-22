@@ -3,7 +3,8 @@ import {
   getRecallBot, 
   getRecallBotTranscript, 
   mapRecallStatusCodeToBotStatus, 
-  isRecallConfigured 
+  isRecallConfigured,
+  cleanParticipantName 
 } from '@/lib/bot/recallService';
 
 export async function GET(
@@ -49,21 +50,28 @@ export async function GET(
       console.log(`Transcript not available yet for bot ${id}`);
     }
 
-    // Determine participants from botData or transcript
+    // Determine clean participants from botData or transcript
     const meetingParticipants: string[] = [];
+    const addParticipant = (rawName: unknown) => {
+      const cleaned = cleanParticipantName(String(rawName || '').trim());
+      if (
+        cleaned &&
+        cleaned !== 'Participant' &&
+        !cleaned.toLowerCase().includes('notetaker') &&
+        !meetingParticipants.includes(cleaned)
+      ) {
+        meetingParticipants.push(cleaned);
+      }
+    };
+
     if (Array.isArray(botData.meeting_participants)) {
       botData.meeting_participants.forEach((p: any) => {
-        const name = p.name || p.user_name || p.display_name;
-        if (name && !meetingParticipants.includes(name)) {
-          meetingParticipants.push(name);
-        }
+        addParticipant(p.name || p.user_name || p.display_name);
       });
     }
     // Combine with transcript participants
     transcriptData.participants.forEach((p) => {
-      if (!meetingParticipants.includes(p)) {
-        meetingParticipants.push(p);
-      }
+      addParticipant(p);
     });
 
     const activeSpeaker = transcriptData.chunks.length > 0 

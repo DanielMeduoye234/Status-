@@ -317,11 +317,148 @@ function isLikelyBotSpeaker(name: string, botName?: string): boolean {
   return cleaned.includes('hexavia notetaker') || cleaned.includes('notetaker bot');
 }
 
+export function cleanParticipantName(rawName: string): string {
+  if (!rawName) return 'Participant';
+  let name = rawName.trim();
+
+  // Strip wrapping quotes or brackets
+  name = name.replace(/^["'\[]+|["'\]]+$/g, '').trim();
+
+  // Handle patterns like "iPhone of Sarah" or "Sarah's iPhone"
+  const iphoneOf = name.match(/^i(?:phone|pad)\s+(?:of|de)\s+(.+)$/i);
+  if (iphoneOf && iphoneOf[1]) {
+    name = iphoneOf[1].trim();
+  }
+  const sIphone = name.match(/^(.+?)['’]s\s+i(?:phone|pad)$/i);
+  if (sIphone && sIphone[1]) {
+    name = sIphone[1].trim();
+  }
+
+  return name || 'Participant';
+}
+
+export function isHardwareDeviceName(name: string): boolean {
+  if (!name) return false;
+  const clean = name.trim().toLowerCase();
+  if (/^(samsung[\s_-]+sm[-_a-z0-9]+|sm[-_][a-z0-9]+)$/i.test(clean)) return true;
+  if (/^(iphone|ipad)(\s*\(\d+\))?$/i.test(clean)) return true;
+  if (/^(redmi|tecno|infinix|pixel|galaxy|oppo|vivo|xiaomi|huawei)(\s+[-_a-z0-9()]+)*$/i.test(clean)) return true;
+  if (/^android[\s_-]*device$/i.test(clean)) return true;
+  return false;
+}
+
+export interface RawTurnItem {
+  speaker: string;
+  text: string;
+  startSec: number;
+  endSec: number;
+}
+
+export function stitchSentences(existing: string, addition: string): string {
+  const e = existing.trim();
+  const a = addition.trim();
+  if (!e) return a;
+  if (!a) return e;
+
+  // If addition starts with punctuation (. , ? ! ; :), attach directly
+  if (/^[.,!?;:]/.test(a)) {
+    return `${e}${a}`;
+  }
+
+  // If existing ends with hyphen or dash, join directly without space
+  if (e.endsWith('-') && !e.endsWith(' -')) {
+    return `${e}${a}`;
+  }
+
+  return `${e} ${a}`;
+}
+
+/**
+ * Smart Utterance & Turn Coalescing Engine:
+ * 1. Groups continuous word streams and segments by speaker.
+ * 2. Merges consecutive segments from the same speaker within conversational pause threshold (<= 8s).
+ * 3. Prevents isolated sub-second cross-talk/mic bleed (<= 2 words, <= 2.5s) from shattering a primary speaker's sentence.
+ */
+export function coalesceRawTurns(items: RawTurnItem[]): RawTurnItem[] {
+  if (items.length <= 1) return items;
+
+  // Stable sort by startSec
+  const sorted = [...items].sort((a, b) => a.startSec - b.startSec);
+
+  const coalesced: Array<RawTurnItem & { wordCount: number }> = [];
+
+  for (const item of sorted) {
+    const text = item.text.trim();
+    if (!text) continue;
+    const wordsInItem = text.split(/\s+/).filter(Boolean).length;
+    const itemStart = item.startSec;
+    const itemEnd = Math.max(item.endSec, item.startSec + 0.1);
+
+    if (coalesced.length === 0) {
+      coalesced.push({
+        speaker: item.speaker,
+        text,
+        startSec: itemStart,
+        endSec: itemEnd,
+        wordCount: wordsInItem,
+      });
+      continue;
+    }
+
+    const lastIdx = coalesced.length - 1;
+    const last = coalesced[lastIdx];
+
+    // Case 1: Same speaker as previous turn -> merge within conversational pause window (<= 8s)
+    if (item.speaker === last.speaker) {
+      const gap = itemStart - last.endSec;
+      if (gap <= 8.0) {
+        last.text = stitchSentences(last.text, text);
+        last.endSec = Math.max(last.endSec, itemEnd);
+        last.wordCount += wordsInItem;
+        continue;
+      }
+    }
+
+    // Case 2: Cross-talk smoothing / backchannel handling
+    // If the immediate last turn was a tiny micro-utterance (<= 2 words, <= 2.5s)
+    // and the turn before that was THIS speaker within a short pause:
+    if (coalesced.length >= 2) {
+      const prev = coalesced[coalesced.length - 2];
+      const isLastMicro = last.wordCount <= 2 && (last.endSec - last.startSec) <= 2.5;
+      const gapToPrev = itemStart - prev.endSec;
+
+      if (item.speaker === prev.speaker && isLastMicro && gapToPrev <= 5.0) {
+        // Main speaker is continuing their continuous thought; do not fragment!
+        prev.text = stitchSentences(prev.text, text);
+        prev.endSec = Math.max(prev.endSec, itemEnd);
+        prev.wordCount += wordsInItem;
+        continue;
+      }
+    }
+
+    // Case 3: Start a new distinct turn
+    coalesced.push({
+      speaker: item.speaker,
+      text,
+      startSec: itemStart,
+      endSec: itemEnd,
+      wordCount: wordsInItem,
+    });
+  }
+
+  return coalesced.map(({ speaker, text, startSec, endSec }) => ({
+    speaker,
+    text,
+    startSec,
+    endSec,
+  }));
+}
+
 function parseRecallTranscriptChunks(
   segments: any[],
   botName?: string
 ): { chunks: TranscriptChunk[]; participants: string[] } {
-  const chunks: TranscriptChunk[] = [];
+  const rawItems: RawTurnItem[] = [];
   const participantsSet = new Set<string>();
 
   for (const seg of segments) {
@@ -332,32 +469,45 @@ function parseRecallTranscriptChunks(
       seg.speaker ||
       seg.name ||
       '';
-    const speaker = String(rawSpeaker || '').trim() || 'Participant';
+    const speaker = cleanParticipantName(String(rawSpeaker || '').trim());
+    if (isLikelyBotSpeaker(speaker, botName)) continue;
 
     let text = '';
     let startSec = 0;
+    let endSec = 0;
+
     if (Array.isArray(seg.words) && seg.words.length > 0) {
       text = seg.words.map((w: any) => String(w?.text || '').trim()).filter(Boolean).join(' ').trim();
-      startSec = extractRelativeSeconds(seg.words[0]?.start_timestamp);
+      startSec = extractRelativeSeconds(seg.words[0]?.start_timestamp ?? seg.start_timestamp);
+      endSec = extractRelativeSeconds(seg.words[seg.words.length - 1]?.end_timestamp ?? seg.end_timestamp ?? (startSec + 1));
     } else if (typeof seg.text === 'string' && seg.text.trim()) {
       text = seg.text.trim();
       startSec = extractRelativeSeconds(seg.start_timestamp ?? seg.start);
+      endSec = extractRelativeSeconds(seg.end_timestamp ?? seg.end ?? (startSec + 1));
     } else if (typeof seg.transcript === 'string' && seg.transcript.trim()) {
       text = seg.transcript.trim();
       startSec = extractRelativeSeconds(seg.start_timestamp ?? seg.start);
+      endSec = extractRelativeSeconds(seg.end_timestamp ?? seg.end ?? (startSec + 1));
     }
 
     if (!text) continue;
-    if (isLikelyBotSpeaker(speaker, botName)) continue;
 
     participantsSet.add(speaker);
-    chunks.push({
-      timestamp: formatSecondsToTimestamp(startSec),
+    rawItems.push({
       speaker,
-      avatarColor: getSpeakerAvatarColor(speaker),
       text,
+      startSec,
+      endSec: Math.max(endSec, startSec),
     });
   }
+
+  const coalescedTurns = coalesceRawTurns(rawItems);
+  const chunks: TranscriptChunk[] = coalescedTurns.map((turn) => ({
+    timestamp: formatSecondsToTimestamp(turn.startSec),
+    speaker: turn.speaker,
+    avatarColor: getSpeakerAvatarColor(turn.speaker),
+    text: turn.text,
+  }));
 
   return { chunks, participants: Array.from(participantsSet) };
 }
@@ -377,8 +527,9 @@ export function buildTranscriptFromRecallPayload(payload: unknown, botName?: str
 }
 
 /**
- * Retrieve transcript segments from Recall.ai and parse into Hexavia format
- * Uses Recall.ai modern /transcript/?bot_id= endpoint & download_url
+ * Retrieve transcript segments from Recall.ai and parse into Hexavia format.
+ * Checks primary dedicated /bot/{id}/transcript/ endpoint first, followed by
+ * recording shortcuts and /transcript/?bot_id= artifacts.
  */
 export async function getRecallBotTranscript(
   botId: string,
@@ -394,21 +545,12 @@ export async function getRecallBotTranscript(
   if (!apiKey) throw new Error('RECALL_AI_API_KEY is not configured.');
 
   const baseUrl = getRecallBaseUrl(regionOverride);
-  let segments: any[] = [];
-  let bestScore = 0;
   let botName: string | undefined;
+  const candidateSegmentSets: any[][] = [];
 
-  const considerSegments = (candidate: any[]) => {
-    const unwrapped = unwrapTranscriptSegments(candidate);
-    const score = scoreTranscriptSegments(unwrapped);
-    if (score > bestScore) {
-      bestScore = score;
-      segments = unwrapped;
-    }
-  };
-
+  // 1. Primary: Dedicated Recall.ai bot transcript endpoint GET /bot/{id}/transcript/
   try {
-    const response = await fetch(`${baseUrl}/transcript/?bot_id=${botId}`, {
+    const directRes = await fetch(`${baseUrl}/bot/${botId}/transcript/`, {
       method: 'GET',
       headers: {
         'Authorization': `Token ${apiKey}`,
@@ -416,28 +558,18 @@ export async function getRecallBotTranscript(
       },
       cache: 'no-store',
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      const results = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
-
-      for (const item of results) {
-        const downloadUrl = item?.data?.download_url;
-        if (downloadUrl) {
-          try {
-            considerSegments(await downloadTranscriptSegments(downloadUrl));
-          } catch (dlErr) {
-            console.warn('Failed downloading transcript from download_url:', dlErr);
-          }
-        } else {
-          considerSegments(unwrapTranscriptSegments(item));
-        }
+    if (directRes.ok) {
+      const directData = await directRes.json();
+      const unwrapped = unwrapTranscriptSegments(directData);
+      if (unwrapped.length > 0) {
+        candidateSegmentSets.push(unwrapped);
       }
     }
-  } catch (err) {
-    console.warn('Error fetching transcript list for bot:', err);
+  } catch (directErr) {
+    console.warn('[RecallService] Error checking direct bot transcript:', directErr);
   }
 
+  // 2. Secondary: Bot recordings shortcuts download URLs GET /bot/{id}/
   try {
     const botRes = await fetch(`${baseUrl}/bot/${botId}/`, {
       headers: {
@@ -454,22 +586,72 @@ export async function getRecallBotTranscript(
         const dlUrl = rec.media_shortcuts?.transcript?.data?.download_url;
         if (dlUrl) {
           try {
-            considerSegments(await downloadTranscriptSegments(dlUrl));
+            const dlSegs = await downloadTranscriptSegments(dlUrl);
+            if (dlSegs.length > 0) {
+              candidateSegmentSets.push(dlSegs);
+            }
           } catch (dlErr) {
-            console.warn('Failed downloading transcript from bot recording shortcut:', dlErr);
+            console.warn('[RecallService] Failed downloading from recording shortcut:', dlErr);
           }
         }
       }
     }
   } catch (botErr) {
-    console.warn('Error checking bot recordings for transcript:', botErr);
+    console.warn('[RecallService] Error checking bot recordings:', botErr);
   }
 
-  if (!Array.isArray(segments) || segments.length === 0) {
+  // 3. Tertiary: Transcript listing endpoint GET /transcript/?bot_id={id}
+  try {
+    const listRes = await fetch(`${baseUrl}/transcript/?bot_id=${botId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const results = Array.isArray(listData.results) ? listData.results : (Array.isArray(listData) ? listData : []);
+      for (const item of results) {
+        const dlUrl = item?.data?.download_url;
+        if (dlUrl) {
+          try {
+            const dlSegs = await downloadTranscriptSegments(dlUrl);
+            if (dlSegs.length > 0) {
+              candidateSegmentSets.push(dlSegs);
+            }
+          } catch (dlErr) {
+            console.warn('[RecallService] Failed downloading from list URL:', dlErr);
+          }
+        } else {
+          const unwrapped = unwrapTranscriptSegments(item);
+          if (unwrapped.length > 0) {
+            candidateSegmentSets.push(unwrapped);
+          }
+        }
+      }
+    }
+  } catch (listErr) {
+    console.warn('[RecallService] Error listing transcripts for bot:', listErr);
+  }
+
+  // Select the most comprehensive candidate segment set
+  let chosenSegments: any[] = [];
+  let maxScore = 0;
+  for (const segSet of candidateSegmentSets) {
+    const score = scoreTranscriptSegments(segSet);
+    if (score > maxScore) {
+      maxScore = score;
+      chosenSegments = segSet;
+    }
+  }
+
+  if (chosenSegments.length === 0) {
     return { chunks: [], fullTranscript: '', participants: [], rawSegments: [] };
   }
 
-  const { chunks, participants } = parseRecallTranscriptChunks(segments, botName);
+  const { chunks, participants } = parseRecallTranscriptChunks(chosenSegments, botName);
   const fullTranscript = chunks
     .map((c) => `[${c.timestamp}] ${c.speaker}: ${c.text}`)
     .join('\n\n');
@@ -478,7 +660,7 @@ export async function getRecallBotTranscript(
     chunks,
     fullTranscript,
     participants,
-    rawSegments: segments,
+    rawSegments: chosenSegments,
   };
 }
 
@@ -493,16 +675,31 @@ export async function waitForRecallBotTranscript(
     regionOverride?: string;
   }
 ) {
-  const attempts = options?.attempts ?? 5;
-  const delayMs = options?.delayMs ?? 2500;
+  const attempts = options?.attempts ?? 8;
+  const delayMs = options?.delayMs ?? 3000;
   let last = await getRecallBotTranscript(botId, options?.apiKeyOverride, options?.regionOverride);
 
+  let lastLen = (last.fullTranscript || '').trim().length;
+  let stableCount = 0;
+
   for (let i = 1; i < attempts; i++) {
-    if (last.fullTranscript && last.fullTranscript.trim().length >= MIN_TRANSCRIPT_CHARS) {
+    // If transcript is substantial (> 250 chars) and has stabilized over 2 checks, return it
+    if (lastLen > 250 && stableCount >= 1) {
       return last;
     }
+
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    last = await getRecallBotTranscript(botId, options?.apiKeyOverride, options?.regionOverride);
+    const next = await getRecallBotTranscript(botId, options?.apiKeyOverride, options?.regionOverride);
+    const nextLen = (next.fullTranscript || '').trim().length;
+
+    if (nextLen > lastLen) {
+      stableCount = 0;
+    } else if (nextLen === lastLen && nextLen > 0) {
+      stableCount++;
+    }
+
+    last = next;
+    lastLen = nextLen;
   }
 
   return last;

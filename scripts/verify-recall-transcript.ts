@@ -2,7 +2,7 @@
  * Fixture check for Recall.ai transcript parsing.
  * Run: npx --yes tsx scripts/verify-recall-transcript.ts
  */
-import { buildTranscriptFromRecallPayload } from '../src/lib/bot/recallService';
+import { buildTranscriptFromRecallPayload, isHardwareDeviceName, cleanParticipantName } from '../src/lib/bot/recallService';
 import { parseZoomTranscript } from '../src/lib/parsers/zoomTranscriptParser';
 
 const recallDownload = [
@@ -68,5 +68,73 @@ const zoomParsed = parseZoomTranscript(parsed.fullTranscript);
 assert(zoomParsed.participants.includes('Ada Okafor'), 'Zoom parser should keep Ada');
 assert(zoomParsed.cleanedDialogue.includes('payment retry fix'), 'Cleaned dialogue lost meeting content');
 
-console.log('Recall transcript parser fixture passed.');
-console.log(parsed.fullTranscript);
+// Test Case: Interleaved fragmented word streaming from screenshot
+// Tolani speaking continuous sentence with Israel micro-interjection / mic bleed
+const fragmentedStream = [
+  {
+    participant: { name: 'Tolani' },
+    words: [
+      { text: 'I', start_timestamp: 87.04, end_timestamp: 87.2 },
+      { text: 'own', start_timestamp: 87.2, end_timestamp: 87.4 },
+    ],
+  },
+  {
+    participant: { name: 'Israel (PM @ Hexavia)' },
+    words: [
+      { text: 'sir.', start_timestamp: 87.4, end_timestamp: 87.5 },
+    ],
+  },
+  {
+    participant: { name: 'Tolani' },
+    words: [
+      { text: 'this', start_timestamp: 87.6, end_timestamp: 87.7 },
+      { text: 'thing', start_timestamp: 87.7, end_timestamp: 87.8 },
+      { text: 'is', start_timestamp: 87.8, end_timestamp: 87.9 },
+    ],
+  },
+  {
+    participant: { name: 'Israel (PM @ Hexavia)' },
+    words: [
+      { text: 'Enjoy', start_timestamp: 88.0, end_timestamp: 88.1 },
+    ],
+  },
+  {
+    participant: { name: 'Tolani' },
+    words: [
+      { text: 'just.', start_timestamp: 88.2, end_timestamp: 88.4 },
+    ],
+  },
+];
+
+const fragmentedParsed = buildTranscriptFromRecallPayload(fragmentedStream);
+console.log('Coalesced Result:\n', fragmentedParsed.fullTranscript);
+
+// Verify Tolani's sentence was coalesced together rather than broken into 3 fragments
+const tolaniChunk = fragmentedParsed.chunks.find((c) => c.speaker === 'Tolani');
+assert(Boolean(tolaniChunk), 'Tolani chunk should exist');
+assert(tolaniChunk!.text === 'I own this thing is just.', `Expected coalesced text, got: "${tolaniChunk!.text}"`);
+
+// Verify Israel's interjection is preserved without breaking Tolani's turn
+const israelChunk = fragmentedParsed.chunks.find((c) => c.speaker.includes('Israel'));
+assert(Boolean(israelChunk), 'Israel chunk should exist');
+// Verify device name detection
+assert(isHardwareDeviceName('Samsung SM-A075F') === true, 'Samsung SM-A075F should be recognized as hardware');
+assert(isHardwareDeviceName('iPhone') === true, 'iPhone should be recognized as hardware');
+assert(isHardwareDeviceName('Redmi Note 11') === true, 'Redmi Note 11 should be recognized as hardware');
+assert(isHardwareDeviceName('Tolani') === false, 'Tolani is not hardware');
+assert(cleanParticipantName('iPhone of Sarah') === 'Sarah', 'iPhone of Sarah should clean to Sarah');
+
+// Verify Zoom Parser Coalescing
+const zoomFragmentedRaw = `[01:27:04] Tolani: I own
+[01:27:04] Israel: sir.
+[01:27:05] Tolani: this thing is
+[01:27:05] Israel: Enjoy
+[01:27:05] Tolani: just.`;
+
+const zoomCoalesced = parseZoomTranscript(zoomFragmentedRaw);
+assert(zoomCoalesced.utterances.length === 2, `Expected 2 coalesced utterances from Zoom parser, got ${zoomCoalesced.utterances.length}`);
+assert(zoomCoalesced.utterances[0].text === 'I own this thing is just.', `Zoom coalesced text mismatch: ${zoomCoalesced.utterances[0].text}`);
+assert(zoomCoalesced.utterances[1].text === 'sir. Enjoy', `Zoom interjection mismatch: ${zoomCoalesced.utterances[1].text}`);
+
+console.log('Recall transcript parser fixture & turn coalescing passed successfully.');
+

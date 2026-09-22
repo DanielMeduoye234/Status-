@@ -28,6 +28,15 @@ CRITICAL ANTI-HALLUCINATION & FACTUAL GROUNDING RULES (MANDATORY):
    - "action_points_by_person": Group actionable next steps ONLY under the real participants who committed to them or were assigned them in the dialogue.
    - "minutes_prepared_by": Assign to the real meeting facilitator, host, or lead project manager from the transcript. If the facilitator is not explicitly designated, use the primary speaker/host or "[Project Lead]". NEVER invent a fictional name.
 
+5. CONVERSATIONAL SPEECH SYNTHESIS & RECONSTRUCTION:
+   - The meeting transcript is recorded from live spoken conversation. People speak in conversational rhythms with pauses, verbal hesitations, filler words, or minor speech-to-text artifacts.
+   - You MUST synthesize each participant's full thoughts, proposals, explanations, questions, and arguments into cohesive, authoritative, well-articulated executive statements.
+   - NEVER reduce an individual's contribution in "who_said_what" or workstream reviews to a single word, isolated greeting, or superficial phrase (e.g. do NOT record "sir", "enjoy", "just", "okay", "yes"). If an attendee spoke during the session, capture their substantive position, rationale, agreements, and deliverables.
+
+6. ATTENDEE IDENTITY & HARDWARE DEVICE NORMALIZATION:
+   - Meeting participants joining via mobile hardware (e.g. "Samsung SM-A075F", "iPhone", "Redmi", "Galaxy") should be resolved to their real human name if they are addressed by other speakers or introduce themselves in the dialogue.
+   - If their name cannot be determined from dialogue, list them respectfully under their team organization as "Team Contributor (Samsung SM-A075F)" or "Mobile Participant" — NEVER fabricate a fake consultant name.
+
 =========================================
 JSON SCHEMA REQUIREMENT:
 =========================================
@@ -122,7 +131,8 @@ You MUST return a strictly valid JSON object matching the following structure:
 Rules:
 1. Thoroughness & Fidelity: Capture deep, granular details from the transcript while remaining 100% faithful to what was spoken.
 2. Grouped Action Points: Action items must be grouped person-by-person in 'action_points_by_person', as well as flattened in 'action_items'.
-3. Output raw valid JSON only (do not wrap in markdown code fence quotes).
+3. Comprehensive Attribution: In 'who_said_what', provide substantive, multi-sentence discussion points and commitments for each active speaker. Never output single-word, isolated filler, or trivial 1-word statements.
+4. Output raw valid JSON only (do not wrap in markdown code fence quotes).
 `;
 
 export const MONTHLY_STATUS_REPORT_SYSTEM_PROMPT = `

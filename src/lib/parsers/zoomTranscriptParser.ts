@@ -168,27 +168,69 @@ export function parseZoomTranscript(rawText: string): ParsedTranscript {
     }
   }
 
-  // Calculate word counts per speaker
+  // Smart Utterance Coalescing for dialogue turns
+  const coalescedUtterances: TranscriptUtterance[] = [];
+  for (const u of utterances) {
+    const text = u.text.trim();
+    if (!text) continue;
+    const speaker = u.speaker.trim();
+
+    if (coalescedUtterances.length === 0) {
+      coalescedUtterances.push({
+        timestamp: u.timestamp,
+        speaker,
+        text,
+      });
+      continue;
+    }
+
+    const last = coalescedUtterances[coalescedUtterances.length - 1];
+
+    // Case 1: Same speaker as previous utterance -> merge
+    if (speaker.toLowerCase() === last.speaker.toLowerCase()) {
+      last.text = /^[.,!?;:]/.test(text) ? `${last.text.trim()}${text}` : `${last.text.trim()} ${text}`;
+      continue;
+    }
+
+    // Case 2: Cross-talk smoothing: if previous turn was a micro-utterance (<= 2 words)
+    // and the turn before that was THIS speaker, keep main thought intact
+    if (coalescedUtterances.length >= 2) {
+      const prev = coalescedUtterances[coalescedUtterances.length - 2];
+      const lastWords = last.text.split(/\s+/).filter(Boolean).length;
+      if (speaker.toLowerCase() === prev.speaker.toLowerCase() && lastWords <= 2) {
+        prev.text = /^[.,!?;:]/.test(text) ? `${prev.text.trim()}${text}` : `${prev.text.trim()} ${text}`;
+        continue;
+      }
+    }
+
+    coalescedUtterances.push({
+      timestamp: u.timestamp,
+      speaker,
+      text,
+    });
+  }
+
+  // Calculate word counts per speaker from coalesced turns
   let totalWords = 0;
-  utterances.forEach((u) => {
+  coalescedUtterances.forEach((u) => {
     const words = u.text.trim().split(/\s+/).filter(Boolean).length;
     totalWords += words;
     speakerWordCounts[u.speaker] = (speakerWordCounts[u.speaker] || 0) + words;
   });
 
-  const participants = Array.from(participantsSet).filter((p) => p !== 'Unknown Speaker');
+  const participants = Array.from(participantsSet).filter((p) => p !== 'Unknown Speaker' && !p.toLowerCase().includes('notetaker'));
   if (participants.length === 0 && participantsSet.has('Unknown Speaker')) {
     participants.push('Unknown Speaker');
   }
 
   // Format clean dialogue for AI prompt
-  const cleanedDialogue = utterances
+  const cleanedDialogue = coalescedUtterances
     .map((u) => `[${u.timestamp || '--:--'}] ${u.speaker}: ${u.text}`)
     .join('\n');
 
   return {
     participants,
-    utterances,
+    utterances: coalescedUtterances,
     rawText,
     totalWords,
     speakerWordCounts,

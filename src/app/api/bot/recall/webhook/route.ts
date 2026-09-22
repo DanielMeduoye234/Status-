@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
           }
 
           const transcriptData = await waitForRecallBotTranscript(botId, {
-            attempts: 5,
+            attempts: 8,
             delayMs: 3000,
           });
           if (!transcriptData.fullTranscript || transcriptData.fullTranscript.trim().length < 20) {

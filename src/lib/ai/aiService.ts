@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { MEETING_SUMMARY_SYSTEM_PROMPT, MONTHLY_STATUS_REPORT_SYSTEM_PROMPT } from './prompts';
 import { parseZoomTranscript, ParsedTranscript } from '../parsers/zoomTranscriptParser';
+import { isHardwareDeviceName, cleanParticipantName } from '../bot/recallService';
 
 export interface HexaviaAttendee {
   name: string;
@@ -177,7 +178,12 @@ function normalizeMeetingSummary(
         }
 
         const validAttendees = Array.isArray(group.attendees)
-          ? group.attendees.filter((att: any) => att && isNameGrounded(att.name))
+          ? group.attendees
+              .filter((att: any) => att && isNameGrounded(att.name))
+              .map((att: any) => ({
+                name: att.name,
+                role: isHardwareDeviceName(att.name) ? 'Mobile Participant / Team Member' : (att.role || 'Team Member'),
+              }))
           : [];
 
         if (validAttendees.length === 0) return null;
@@ -195,7 +201,9 @@ function normalizeMeetingSummary(
     const attendees = parsed.participants.length > 0
       ? parsed.participants.map((p, idx) => ({
           name: p,
-          role: idx === 0 ? 'Lead Project Manager / Facilitator' : 'Team Contributor / Stakeholder',
+          role: isHardwareDeviceName(p)
+            ? 'Mobile Participant / Team Member'
+            : (idx === 0 ? 'Lead Project Manager / Facilitator' : 'Team Contributor / Stakeholder'),
         }))
       : [{ name: 'Meeting Attendee', role: 'Participant' }];
     inAttendance = [{ organization: org, attendees }];
@@ -203,9 +211,10 @@ function normalizeMeetingSummary(
 
   // 2. Sanitize minutes_prepared_by
   let minutesPreparedBy = data.minutes_prepared_by;
-  if (!minutesPreparedBy || !isNameGrounded(minutesPreparedBy.name)) {
+  if (!minutesPreparedBy || !isNameGrounded(minutesPreparedBy.name) || isHardwareDeviceName(minutesPreparedBy.name)) {
+    const humanParticipant = parsed.participants.find((p) => !isHardwareDeviceName(p)) || parsed.participants[0] || 'Project Lead';
     minutesPreparedBy = {
-      name: parsed.participants[0] || 'Project Lead',
+      name: humanParticipant,
       role: 'Project Manager / Facilitator',
       organization: projectName || inAttendance[0]?.organization || 'Project Team',
     };
@@ -231,7 +240,7 @@ function normalizeMeetingSummary(
       .filter((p: any) => p && isNameGrounded(p.person))
       .map((p: any) => ({
         person: p.person,
-        role: p.role,
+        role: isHardwareDeviceName(p.person) ? 'Mobile Participant / Team Member' : (p.role || 'Team Contributor'),
         organization: p.organization,
         actions: Array.isArray(p.actions) ? p.actions : [],
       }));
@@ -245,16 +254,41 @@ function normalizeMeetingSummary(
         : [];
       return {
         person,
-        role: 'Team Contributor',
+        role: isHardwareDeviceName(person) ? 'Mobile Participant / Team Member' : 'Team Contributor',
         organization: projectName || 'Project Team',
         actions: matched.length > 0 ? matched.map((m: any) => m.task) : ['Continue tracking assigned deliverables.'],
       };
     });
   }
 
-  // 4. Sanitize who_said_what
+  // 4. Sanitize who_said_what: filter out trivial single-word filler statements (e.g., "sir.", "Enjoy", "ok")
+  const TRIVIAL_FILLERS = new Set(['sir', 'sir.', 'enjoy', 'enjoy.', 'just', 'just.', 'ok', 'okay', 'yes', 'yeah', 'right', 'hello', 'hi', 'bye']);
   let whoSaidWhat = Array.isArray(data.who_said_what)
-    ? data.who_said_what.filter((w: any) => w && isNameGrounded(w.speaker))
+    ? data.who_said_what
+        .filter((w: any) => w && isNameGrounded(w.speaker))
+        .map((w: any) => {
+          const mainPoints = Array.isArray(w.main_points)
+            ? w.main_points.filter((pt: any) => {
+                const cleanPt = String(pt || '').trim();
+                if (!cleanPt || cleanPt.length < 3) return false;
+                if (TRIVIAL_FILLERS.has(cleanPt.toLowerCase())) return false;
+                return true;
+              })
+            : [];
+          const commitments = Array.isArray(w.commitments)
+            ? w.commitments.filter((c: any) => {
+                const cleanC = String(c || '').trim();
+                return cleanC && cleanC.length >= 3 && !TRIVIAL_FILLERS.has(cleanC.toLowerCase());
+              })
+            : [];
+          return {
+            speaker: w.speaker,
+            main_points: mainPoints,
+            commitments,
+            sentiment: w.sentiment || 'constructive',
+          };
+        })
+        .filter((w: any) => w.main_points.length > 0 || w.commitments.length > 0)
     : [];
 
   // 5. Sanitize title
@@ -356,6 +390,9 @@ STRICT GROUNDING & ANTI-HALLUCINATION REQUIREMENT:
 - All attendees in 'in_attendance', speakers in 'who_said_what', and owners in 'action_points_by_person' MUST be chosen ONLY from the verified participants list above: [${parsed.participants.join(', ')}].
 - DO NOT invent, hallucinate, or import any third-party names, consultants, or attendees that did not join this call.
 - DO NOT use template example names (such as Funto, Stella, Ikenna, Mpenziwe, Swayliners, Hexavia) unless they are in the transcript.
+- CONVERSATIONAL SPEECH SYNTHESIS: The transcript is from live spoken conversation. Reconstruct and synthesize the full, complete thoughts and arguments expressed by each participant.
+- NO TRIVIAL / 1-WORD ATTRIBUTION: In 'who_said_what', extract substantive multi-sentence points, positions, technical viewpoints, or commitments. Do NOT create entries for isolated single-word utterances (such as 'sir', 'enjoy', 'ok').
+- DEVICE ATTENDEES: If the participants list contains phone hardware IDs (e.g. Samsung SM-A075F, iPhone), resolve to their human name if addressed in speech, or list respectfully as 'Mobile Participant / Team Member'.
 - Format the output strictly matching the requested JSON structure using exclusively the real information from the dialogue.
 
 TRANSCRIPT:
